@@ -1,0 +1,15 @@
+PROCESS ANALYSE RAPPORT
+==========================
+
+Top procesproblemen (op impact):
+
+1. Case 2 – stap 'Open'
+   Impact: 25.5 uur vertraging
+   Oorzaak: 1.9× langer dan normaal (53.0u vs 27.5u)
+
+
+Structurele knelpunten per stap:
+
+1. Stap 'Open'
+   Totale impact: 25.5 uur
+   Aantal incidenten: 1

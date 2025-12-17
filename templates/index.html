@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Process Analyzer</title>
+</head>
+<body>
+    <h1>Process Analyzer</h1>
+
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".csv" required>
+        <br><br>
+        <button type="submit">Analyse starten</button>
+    </form>
+
+    <p>Na upload kun je het rapport downloaden via:</p>
+    <a href="/download">Download PDF</a>
+</body>
+</html>
