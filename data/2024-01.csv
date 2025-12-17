@@ -1,0 +1,7 @@
+case_id,step,timestamp
+1,Open,2024-01-01 09:00
+1,Waiting,2024-01-01 11:00
+1,Resolved,2024-01-02 10:00
+2,Open,2024-01-01 10:00
+2,Waiting,2024-01-03 15:00
+2,Resolved,2024-01-04 09:00

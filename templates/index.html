@@ -1,19 +1,146 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-    <meta charset="UTF-8">
-    <title>Process Analyzer</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Process Detector</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; }
+    .card { max-width: 860px; padding: 24px; border: 1px solid #e5e7eb; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.06); }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 16px; color: #374151; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    input[type="file"], input[type="email"] { padding: 10px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+    button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; background: #111827; color: #fff; font-weight: 600; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    .status { margin-top: 16px; padding: 12px 14px; border-radius: 12px; border: 1px solid #e5e7eb; background: #f9fafb; display: none; }
+    .status.show { display: block; }
+    .status.ok { border-color: #bbf7d0; background: #f0fdf4; }
+    .status.err { border-color: #fecaca; background: #fef2f2; }
+    .spinner { width: 16px; height: 16px; border-radius: 999px; border: 2px solid #d1d5db; border-top-color: #111827; animation: spin 0.85s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .muted { color: #6b7280; font-size: 13px; margin-top: 8px; }
+    a { color: #111827; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb; font-size:12px; }
+    hr { border:none;border-top:1px solid #e5e7eb;margin:18px 0; }
+  </style>
 </head>
 <body>
-    <h1>Process Analyzer</h1>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h1>Process Detector</h1>
+      {% if active %}
+        <span class="pill">✅ Abonnement actief{% if email %} — {{ email }}{% endif %}</span>
+      {% else %}
+        <span class="pill">🔒 Abonnement vereist</span>
+      {% endif %}
+    </div>
 
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".csv" required>
-        <br><br>
-        <button type="submit">Analyse starten</button>
+    <p>Upload een CSV event-log. De tool detecteert procesvertragingen en genereert automatisch een PDF-rapport.</p>
+
+    {% if not active %}
+      <form method="post" action="/billing/checkout" class="row" style="margin-bottom:10px;">
+        <input type="email" name="email" placeholder="jij@bedrijf.nl" required />
+        <button type="submit">Abonneren (Stripe)</button>
+      </form>
+      <div class="muted">Na betaling wordt je toegang automatisch geactiveerd via Stripe webhooks.</div>
+      <hr>
+    {% else %}
+      <form method="post" action="/billing/portal" style="margin-bottom:14px;">
+        <button type="submit">Beheer abonnement</button>
+      </form>
+    {% endif %}
+
+    <form id="uploadForm">
+      <div class="row">
+        <input id="fileInput" type="file" name="file" accept=".csv,text/csv" required {% if not active %}disabled{% endif %} />
+        <button id="submitBtn" type="submit" {% if not active %}disabled{% endif %}>Analyseer & genereer PDF</button>
+      </div>
+      <div class="muted">Tip: CSV moet minimaal <code>case_id</code> en <code>timestamp</code> bevatten (en je event/stap kolom).</div>
     </form>
 
-    <p>Na upload kun je het rapport downloaden via:</p>
-    <a href="/download">Download PDF</a>
+    <div id="statusBox" class="status">
+      <div id="statusLine"></div>
+      <div id="downloadLine" style="margin-top:10px; display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("uploadForm");
+    const fileInput = document.getElementById("fileInput");
+    const submitBtn = document.getElementById("submitBtn");
+    const statusBox = document.getElementById("statusBox");
+    const statusLine = document.getElementById("statusLine");
+    const downloadLine = document.getElementById("downloadLine");
+
+    function setBusy(isBusy, message) {
+      submitBtn.disabled = isBusy;
+      fileInput.disabled = isBusy;
+
+      statusBox.classList.add("show");
+      statusBox.classList.remove("ok", "err");
+      downloadLine.style.display = "none";
+      downloadLine.innerHTML = "";
+
+      if (isBusy) statusLine.innerHTML = `<span class="spinner"></span>${message || "Analyse bezig..."}`;
+      else statusLine.innerHTML = message || "";
+    }
+
+    function setError(message) {
+      statusBox.classList.add("show", "err");
+      statusBox.classList.remove("ok");
+      statusLine.innerHTML = message;
+      downloadLine.style.display = "none";
+      downloadLine.innerHTML = "";
+      submitBtn.disabled = false;
+      fileInput.disabled = false;
+    }
+
+    function setSuccess(message, downloadUrl) {
+      statusBox.classList.add("show", "ok");
+      statusBox.classList.remove("err");
+      statusLine.innerHTML = message;
+
+      if (downloadUrl) {
+        downloadLine.style.display = "block";
+        downloadLine.innerHTML = `✅ <a href="${downloadUrl}">Download opnieuw</a>`;
+      }
+      submitBtn.disabled = false;
+      fileInput.disabled = false;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return setError("Kies eerst een CSV-bestand.");
+      if (!(file.name || "").toLowerCase().endsWith(".csv")) return setError("Upload een bestand met .csv.");
+
+      setBusy(true, "CSV uploaden & analyseren…");
+
+      const fd = new FormData();
+      fd.append("file", file);
+
+      try {
+        const res = await fetch("/upload", { method: "POST", body: fd });
+        const ct = res.headers.get("content-type") || "";
+        const payload = ct.includes("application/json") ? await res.json() : null;
+
+        if (!res.ok) {
+          const msg = payload?.detail || `Upload mislukt (HTTP ${res.status}).`;
+          return setError(msg);
+        }
+
+        const filename = payload?.filename;
+        if (!filename) return setError("Geen PDF-bestandsnaam ontvangen van de server.");
+
+        const downloadUrl = `/download/${encodeURIComponent(filename)}`;
+        window.location = downloadUrl;
+        setSuccess("Rapport is gegenereerd. Je download start automatisch.", downloadUrl);
+      } catch {
+        setError("Er ging iets mis tijdens upload/analyse. Probeer opnieuw.");
+      }
+    });
+  </script>
 </body>
 </html>

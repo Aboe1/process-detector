@@ -1,140 +1,133 @@
-import sys
-import os
 import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from pathlib import Path
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
 
-# Zorg dat Windows console geen Unicode-issues geeft
-sys.stdout.reconfigure(encoding="utf-8")
+# ===============================
+# PADEN
+# ===============================
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-print("Process detector gestart")
+CSV_PATH = UPLOAD_DIR / "events.csv"
+OUTPUT_PDF = UPLOAD_DIR / "process_report.pdf"
 
-try:
-    # ==================================================
-    # INPUT
-    # ==================================================
-    INPUT_FILE = "uploads/events.csv"
+if not CSV_PATH.exists():
+    raise FileNotFoundError("events.csv niet gevonden in /uploads")
 
-    if not os.path.exists(INPUT_FILE):
-        print("[WARN] Geen CSV gevonden in uploads/events.csv")
-        sys.exit(0)
+df = pd.read_csv(CSV_PATH)
 
-    df = pd.read_csv(INPUT_FILE)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values(["case_id", "timestamp"])
+# ===============================
+# KOLOM NORMALISATIE (SaaS-proof)
+# ===============================
+COLUMN_ALIASES = {
+    "case_id": ["case_id", "case", "caseid", "ticket_id", "order_id"],
+    "timestamp": ["timestamp", "time", "datetime", "date"],
+    "event": ["event", "activity", "step", "status", "action", "event_name"],
+}
 
-    # ==================================================
-    # DUUR PER STAP
-    # ==================================================
-    df["next_time"] = df.groupby("case_id")["timestamp"].shift(-1)
-    df["step_duration"] = (
-        df["next_time"] - df["timestamp"]
-    ).dt.total_seconds() / 3600
+normalized = {}
+for canonical, options in COLUMN_ALIASES.items():
+    for col in options:
+        if col in df.columns:
+            normalized[canonical] = col
+            break
 
-    # ==================================================
-    # PROBLEMEN DETECTEREN
-    # ==================================================
-    problems = []
-
-    for step, group in df.groupby("step"):
-        durations = group["step_duration"].dropna()
-        if len(durations) < 2:
-            continue
-
-        normal = durations.mean()
-        threshold = normal * 1.5
-
-        for _, row in group.iterrows():
-            actual = row["step_duration"]
-            if pd.notna(actual) and actual > threshold:
-                problems.append({
-                    "case_id": int(row["case_id"]),
-                    "step": step,
-                    "delay": actual - normal,
-                    "factor": actual / normal,
-                    "actual": actual,
-                    "normal": normal
-                })
-
-    problems_sorted = sorted(
-        problems, key=lambda p: p["delay"], reverse=True
+missing = set(COLUMN_ALIASES.keys()) - set(normalized.keys())
+if missing:
+    raise ValueError(
+        f"Ontbrekende verplichte kolommen: {missing}. "
+        f"Gevonden kolommen: {list(df.columns)}"
     )
 
-    # ==================================================
-    # STRUCTURELE KNELPUNTEN PER STAP
-    # ==================================================
-    step_summary = {}
+df = df.rename(columns={v: k for k, v in normalized.items()})
 
-    for p in problems:
-        step_summary.setdefault(
-            p["step"], {"total_delay": 0.0, "count": 0}
-        )
-        step_summary[p["step"]]["total_delay"] += p["delay"]
-        step_summary[p["step"]]["count"] += 1
+# ===============================
+# BASIC CLEANUP
+# ===============================
+df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+df = df.dropna(subset=["timestamp", "case_id", "event"])
+df = df.sort_values(["case_id", "timestamp"])
 
-    sorted_steps = sorted(
-        step_summary.items(),
-        key=lambda x: x[1]["total_delay"],
-        reverse=True
+# ===============================
+# DUUR PER STAP
+# ===============================
+df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
+df["duration_hours"] = (df["next_timestamp"] - df["timestamp"]).dt.total_seconds().div(3600)
+df = df.dropna(subset=["duration_hours"])
+df = df[df["duration_hours"] >= 0]  # safety
+
+# ===============================
+# NORMAALGEDRAG & AFWIJKINGEN
+# ===============================
+baseline = df.groupby("event")["duration_hours"].median().rename("baseline_hours")
+df = df.join(baseline, on="event")
+
+df["is_delay"] = df["duration_hours"] > 1.5 * df["baseline_hours"]
+df["impact_hours"] = df["duration_hours"] - df["baseline_hours"]
+
+delays = df[df["is_delay"]].copy()
+
+summary = (
+    delays.groupby("event")
+    .agg(
+        occurrences=("impact_hours", "count"),
+        total_impact_hours=("impact_hours", "sum"),
+        avg_impact_hours=("impact_hours", "mean"),
     )
+    .sort_values("total_impact_hours", ascending=False)
+    .reset_index()
+)
 
-    # ==================================================
-    # PDF RAPPORT GENEREREN
-    # ==================================================
-    doc = SimpleDocTemplate("process-report.pdf")
-    styles = getSampleStyleSheet()
-    elements = []
+# ===============================
+# PDF GENERATIE
+# ===============================
+styles = getSampleStyleSheet()
+doc = SimpleDocTemplate(
+    str(OUTPUT_PDF),
+    pagesize=A4,
+    rightMargin=36,
+    leftMargin=36,
+    topMargin=36,
+    bottomMargin=36,
+)
 
-    elements.append(
-        Paragraph("<b>PROCESS ANALYSE RAPPORT</b>", styles["Title"])
-    )
-    elements.append(Spacer(1, 12))
+elements = []
+elements.append(Paragraph("<b>Process Detector – Analyse Rapport</b>", styles["Title"]))
+elements.append(Spacer(1, 12))
+elements.append(Paragraph(
+    "Dit rapport toont structurele procesvertragingen op basis van event-log analyse.",
+    styles["Normal"],
+))
+elements.append(Spacer(1, 16))
 
-    elements.append(
-        Paragraph("<b>Top procesproblemen</b>", styles["Heading2"])
-    )
-    elements.append(Spacer(1, 8))
+elements.append(Paragraph("<b>Top procesknelpunten</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
 
-    if not problems_sorted:
-        elements.append(
-            Paragraph("Geen procesproblemen gevonden.", styles["Normal"])
-        )
-    else:
-        for p in problems_sorted:
-            elements.append(Paragraph(
-                f"<b>Case {p['case_id']} – stap '{p['step']}'</b><br/>"
-                f"Impact: {p['delay']:.1f} uur vertraging<br/>"
-                f"Oorzaak: {p['factor']:.1f}x langer dan normaal "
-                f"({p['actual']:.1f}u vs {p['normal']:.1f}u)",
-                styles["Normal"]
-            ))
-            elements.append(Spacer(1, 10))
+if summary.empty:
+    elements.append(Paragraph("Geen significante procesvertragingen gedetecteerd.", styles["Normal"]))
+else:
+    table_data = [["Processtap", "Aantal keer", "Totale impact (uren)", "Gem. impact (uren)"]]
+    for _, row in summary.iterrows():
+        table_data.append([
+            str(row["event"]),
+            int(row["occurrences"]),
+            f"{row['total_impact_hours']:.2f}",
+            f"{row['avg_impact_hours']:.2f}",
+        ])
 
-    elements.append(Spacer(1, 16))
-    elements.append(
-        Paragraph("<b>Structurele knelpunten</b>", styles["Heading2"])
-    )
-    elements.append(Spacer(1, 8))
+    table = Table(table_data, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+    ]))
+    elements.append(table)
 
-    if not sorted_steps:
-        elements.append(
-            Paragraph("Geen structurele knelpunten.", styles["Normal"])
-        )
-    else:
-        for step, stats in sorted_steps:
-            elements.append(Paragraph(
-                f"<b>Stap '{step}'</b><br/>"
-                f"Totale impact: {stats['total_delay']:.1f} uur<br/>"
-                f"Aantal incidenten: {stats['count']}",
-                styles["Normal"]
-            ))
-            elements.append(Spacer(1, 10))
-
-    doc.build(elements)
-
-    print("[OK] Analyse succesvol afgerond")
-
-except Exception as e:
-    # NOOIT emoji's hier, alleen ASCII
-    print("[ERROR] Analyse fout:", str(e))
-    sys.exit(0)
+doc.build(elements)
+print(f"PDF gegenereerd: {OUTPUT_PDF}")
