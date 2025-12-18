@@ -1,12 +1,12 @@
-# === PROCESS DETECTOR – DEMO MODE ===
+# === PROCESS DETECTOR – AUTO EMAIL PDF ===
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
-from starlette.responses import Response
 
-import os, json, hmac, hashlib, subprocess, sys, shutil
+import os, json, hmac, hashlib, subprocess, sys, shutil, smtplib
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +31,13 @@ STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
 
+# 📧 SMTP CONFIG (Render env vars)
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+MAIL_FROM = os.getenv("MAIL_FROM", SMTP_USER)
+
 BASIC_LIMIT = 5
 PRO_LIMIT = 999999
 
@@ -38,8 +45,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 TENANTS_FILE = DATA_DIR / "tenants.json"
 
 DEMO_CSV = UPLOAD_DIR / "demo.csv"
-DEMO_PDF = UPLOAD_DIR / "process_report_demo.pdf"
-DEMO_RATE = 60  # vaste € / uur
+DEMO_RATE = 60
 
 # ========== HELPERS ==========
 def load_tenants():
@@ -67,6 +73,39 @@ def get_user(request):
 def is_active(email):
     return load_tenants().get(email, {}).get("active", False)
 
+# ========== EMAIL ==========
+def send_pdf_email(to_email: str, pdf_path: Path):
+    if not all([SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM]):
+        return  # mail niet geconfigureerd → stil falen
+
+    msg = EmailMessage()
+    msg["Subject"] = "Je Process Detector rapport"
+    msg["From"] = MAIL_FROM
+    msg["To"] = to_email
+
+    msg.set_content(
+        "Beste,\n\n"
+        "In de bijlage vind je het gegenereerde Process Detector rapport.\n\n"
+        "Met vriendelijke groet,\n"
+        "Process Detector"
+    )
+
+    with open(pdf_path, "rb") as f:
+        msg.add_attachment(
+            f.read(),
+            maintype="application",
+            subtype="pdf",
+            filename=pdf_path.name
+        )
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+    except Exception:
+        pass  # mailfout mag de app niet breken
+
 # ========== ROUTES ==========
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
@@ -74,38 +113,59 @@ def home(request: Request):
     tenants = load_tenants()
     user = tenants.get(email, {}) if email else {}
 
-    plan = user.get("plan", "basic")
-
     return templates.TemplateResponse("index.html", {
         "request": request,
         "email": email,
         "active": is_active(email) if email else False,
-        "plan": plan,
-        "is_pro": plan == "pro",
+        "plan": user.get("plan", "basic"),
         "demo_used": request.cookies.get("pd_demo_used") == "true"
     })
 
-# ========== DEMO MODE ==========
+# ========== DEMO ==========
 @app.post("/demo")
 async def demo(request: Request):
     if request.cookies.get("pd_demo_used") == "true":
-        raise HTTPException(status_code=403, detail="Demo al gebruikt.")
+        raise HTTPException(status_code=403, detail="Demo al gebruikt")
 
-    if not DEMO_CSV.exists():
-        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt.")
-
-    # kopieer demo.csv → events.csv
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
+    pdf_name = "process_report_demo.pdf"
 
-    # run analyse
     subprocess.run(
-        [sys.executable, "analyze.py", str(DEMO_RATE), DEMO_PDF.name],
+        [sys.executable, "analyze.py", str(DEMO_RATE), pdf_name],
         check=True
     )
 
-    resp = RedirectResponse(f"/download/{DEMO_PDF.name}")
+    resp = RedirectResponse(f"/download/{pdf_name}")
     resp.set_cookie("pd_demo_used", "true", max_age=60*60*24*365)
     return resp
+
+# ========== UPLOAD ==========
+@app.post("/upload")
+async def upload(
+    request: Request,
+    file: UploadFile = File(...),
+    rate: float = Form(...),
+):
+    email = get_user(request)
+    if not email or not is_active(email):
+        raise HTTPException(status_code=402)
+
+    (UPLOAD_DIR / "events.csv").write_bytes(await file.read())
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    pdf_name = f"process_report_{stamp}.pdf"
+
+    subprocess.run(
+        [sys.executable, "analyze.py", str(rate), pdf_name],
+        check=True
+    )
+
+    pdf_path = UPLOAD_DIR / pdf_name
+
+    # 📧 stuur mail
+    send_pdf_email(email, pdf_path)
+
+    return {"filename": pdf_name}
 
 # ========== DOWNLOAD ==========
 @app.get("/download/{filename}")
@@ -114,3 +174,4 @@ def download(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404)
     return FileResponse(path, media_type="application/pdf")
+
