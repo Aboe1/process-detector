@@ -1,55 +1,40 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Process Detector</title>
 </head>
 <body>
 
 <h1>Process Detector</h1>
 
-{% if not active %}
+{% if active %}
+  <p>Ingelogd als <b>{{ email }}</b> — plan: <b>{{ plan|upper }}</b></p>
+  <p>Gebruik: {{ used }} / {{ limit }}</p>
+{% else %}
   <form method="post" action="/billing/checkout">
     <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
-    <button name="plan" value="basic">Basic</button>
-    <button name="plan" value="pro">Pro</button>
+    <button name="plan" value="basic">Start Basic</button>
+    <button name="plan" value="pro">Start Pro</button>
   </form>
-{% else %}
-  <p>Ingelogd als {{ email }} ({{ plan|upper }})</p>
 {% endif %}
 
 <hr>
 
+{% if active and not is_pro %}
+  <div style="border:2px solid red; padding:10px; margin-bottom:20px;">
+    <h3>🚀 Upgrade naar Pro</h3>
+    <p>Krijg €-impact, analysegeschiedenis en onbeperkte uploads.</p>
+    <form method="post" action="/billing/upgrade">
+      <button>Upgrade naar Pro</button>
+    </form>
+  </div>
+{% endif %}
+
 <form id="uploadForm">
   <input type="file" name="file" required {% if not active %}disabled{% endif %}>
-
-  {% if is_pro %}
-    <input type="number" name="rate" placeholder="€ per uur" value="60">
-  {% else %}
-    <p><b>€-impact is beschikbaar in Pro</b></p>
-    <input type="hidden" name="rate" value="0">
-  {% endif %}
-
   <button type="submit" {% if not active %}disabled{% endif %}>Analyseer</button>
 </form>
-
-{% if not is_pro %}
-  <p style="color:red;">
-    👉 Upgrade naar <b>Pro</b> voor €-impact en analysegeschiedenis
-  </p>
-{% endif %}
-
-{% if is_pro and history %}
-  <h3>Analysegeschiedenis</h3>
-  <ul>
-    {% for h in history %}
-      <li>
-        {{ h.date }} —
-        <a href="/download/{{ h.pdf }}">Download PDF</a>
-      </li>
-    {% endfor %}
-  </ul>
-{% endif %}
 
 <script>
 document.getElementById("uploadForm").onsubmit = async (e) => {
