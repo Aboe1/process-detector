@@ -135,7 +135,10 @@ async def demo(request: Request):
         check=True
     )
 
-    resp = RedirectResponse(f"/download/{pdf_name}")
+    resp = RedirectResponse(
+    f"/download/{pdf_name}",
+    status_code=303
+)
     resp.set_cookie("pd_demo_used", "true", max_age=60*60*24*365)
     return resp
 
