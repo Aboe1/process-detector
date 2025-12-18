@@ -1,4 +1,4 @@
-# === PROCESS DETECTOR – AUTO EMAIL PDF ===
+# === PROCESS DETECTOR – SAAS APP ===
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
@@ -10,8 +10,10 @@ from email.message import EmailMessage
 from datetime import datetime, timezone
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 import stripe
 
+# ========== APP ==========
 app = FastAPI(title="Process Detector")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,20 +30,20 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
+
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
+DEV_MODE = os.getenv("DEV_MODE") == "true"
 
-# 📧 SMTP CONFIG (Render env vars)
+# SMTP (Strato)
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 MAIL_FROM = os.getenv("MAIL_FROM", SMTP_USER)
 
-BASIC_LIMIT = 5
-PRO_LIMIT = 999999
-
 stripe.api_key = STRIPE_SECRET_KEY
+
 TENANTS_FILE = DATA_DIR / "tenants.json"
 
 DEMO_CSV = UPLOAD_DIR / "demo.csv"
@@ -56,27 +58,42 @@ def load_tenants():
 def save_tenants(data):
     TENANTS_FILE.write_text(json.dumps(data, indent=2))
 
-def sign(email):
-    sig = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+def sign(email: str):
+    sig = hmac.new(
+        TOKEN_SIGNING_SECRET.encode(),
+        email.encode(),
+        hashlib.sha256
+    ).hexdigest()
     return f"{email}.{sig}"
 
-def verify(token):
+def verify(token: str | None):
     if not token or "." not in token:
         return None
     email, sig = token.rsplit(".", 1)
-    check = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+    check = hmac.new(
+        TOKEN_SIGNING_SECRET.encode(),
+        email.encode(),
+        hashlib.sha256
+    ).hexdigest()
     return email if hmac.compare_digest(sig, check) else None
 
-def get_user(request):
+def get_user(request: Request):
     return verify(request.cookies.get("pd_token"))
 
-def is_active(email):
+def is_active(email: str | None):
     return load_tenants().get(email, {}).get("active", False)
 
 # ========== EMAIL ==========
 def send_pdf_email(to_email: str, pdf_path: Path):
     if not all([SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM]):
-        return  # mail niet geconfigureerd → stil falen
+        return
+
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATES_DIR),
+        autoescape=select_autoescape(["html"])
+    )
+    template = env.get_template("email_report.html")
+    html_content = template.render(email=to_email)
 
     msg = EmailMessage()
     msg["Subject"] = "Je Process Detector rapport"
@@ -84,11 +101,10 @@ def send_pdf_email(to_email: str, pdf_path: Path):
     msg["To"] = to_email
 
     msg.set_content(
-        "Beste,\n\n"
-        "In de bijlage vind je het gegenereerde Process Detector rapport.\n\n"
-        "Met vriendelijke groet,\n"
-        "Process Detector"
+        "Je Process Detector rapport is gegenereerd.\n"
+        "Bekijk de bijlage voor het PDF-rapport."
     )
+    msg.add_alternative(html_content, subtype="html")
 
     with open(pdf_path, "rb") as f:
         msg.add_attachment(
@@ -103,8 +119,8 @@ def send_pdf_email(to_email: str, pdf_path: Path):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
-    except Exception:
-        pass  # mailfout mag de app niet breken
+    except Exception as e:
+        print("SMTP ERROR:", e)
 
 # ========== ROUTES ==========
 @app.get("/", response_class=HTMLResponse)
@@ -124,8 +140,11 @@ def home(request: Request):
 # ========== DEMO ==========
 @app.post("/demo")
 async def demo(request: Request):
-    if request.cookies.get("pd_demo_used") == "true":
+    if not DEV_MODE and request.cookies.get("pd_demo_used") == "true":
         raise HTTPException(status_code=403, detail="Demo al gebruikt")
+
+    if not DEMO_CSV.exists():
+        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt")
 
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
     pdf_name = "process_report_demo.pdf"
@@ -136,10 +155,14 @@ async def demo(request: Request):
     )
 
     resp = RedirectResponse(
-    f"/download/{pdf_name}",
-    status_code=303
-)
-    resp.set_cookie("pd_demo_used", "true", max_age=60*60*24*365)
+        f"/download/{pdf_name}",
+        status_code=303  # 🔑 FIX: force GET after POST
+    )
+    resp.set_cookie(
+        "pd_demo_used",
+        "true",
+        max_age=60 * 60 * 24 * 365
+    )
     return resp
 
 # ========== UPLOAD ==========
@@ -151,7 +174,7 @@ async def upload(
 ):
     email = get_user(request)
     if not email or not is_active(email):
-        raise HTTPException(status_code=402)
+        raise HTTPException(status_code=402, detail="Abonnement vereist")
 
     (UPLOAD_DIR / "events.csv").write_bytes(await file.read())
 
@@ -164,8 +187,6 @@ async def upload(
     )
 
     pdf_path = UPLOAD_DIR / pdf_name
-
-    # 📧 stuur mail
     send_pdf_email(email, pdf_path)
 
     return {"filename": pdf_name}
@@ -175,6 +196,10 @@ async def upload(
 def download(filename: str):
     path = UPLOAD_DIR / filename
     if not path.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(path, media_type="application/pdf")
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=filename
+    )
 
