@@ -3,47 +3,33 @@ from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Redirect
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-import os
-import time
-import glob
-import json
-import hmac
-import hashlib
-import subprocess
-import sys
+import os, time, glob, json, hmac, hashlib, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
-
 import stripe
 
 app = FastAPI(title="Process Detector")
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
-TEMPLATES_DIR = BASE_DIR / "templates"
 DATA_DIR = BASE_DIR / "data"
+TEMPLATES_DIR = BASE_DIR / "templates"
 
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# =========================
-# STRIPE CONFIG (Render env vars)
-# =========================
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
-STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC", "").strip()
-STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "").strip()
-BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000").strip()
+# ================= CONFIG =================
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
+STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
+BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
+TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
 
-# Cookie token signing (set this in Render!)
-TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me-please").strip()
-
-# Upload limits
-BASIC_MONTHLY_UPLOAD_LIMIT = int(os.getenv("BASIC_MONTHLY_UPLOAD_LIMIT", "5"))
-PRO_MONTHLY_UPLOAD_LIMIT = int(os.getenv("PRO_MONTHLY_UPLOAD_LIMIT", "999999"))  # effectively unlimited
+BASIC_LIMIT = 5
+PRO_LIMIT = 999999
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -51,194 +37,77 @@ if STRIPE_SECRET_KEY:
 TENANTS_FILE = DATA_DIR / "tenants.json"
 
 
-# =========================
-# Tiny storage helpers (JSON file)
-# =========================
-def _load_tenants() -> dict:
-    if not TENANTS_FILE.exists():
-        return {}
-    try:
-        return json.loads(TENANTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+# ================= HELPERS =================
+def load_tenants():
+    if TENANTS_FILE.exists():
+        return json.loads(TENANTS_FILE.read_text())
+    return {}
 
+def save_tenants(data):
+    TENANTS_FILE.write_text(json.dumps(data, indent=2))
 
-def _save_tenants(data: dict) -> None:
-    TENANTS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+def sign(email):
+    sig = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+    return f"{email}.{sig}"
 
-
-# =========================
-# Cookie token helpers
-# =========================
-def _sign_token(raw: str) -> str:
-    sig = hmac.new(TOKEN_SIGNING_SECRET.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{raw}.{sig}"
-
-
-def _verify_token(token: str) -> Optional[str]:
+def verify(token):
     if not token or "." not in token:
         return None
-    raw, sig = token.rsplit(".", 1)
-    expected = hmac.new(TOKEN_SIGNING_SECRET.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
-    if hmac.compare_digest(sig, expected):
-        return raw
-    return None
+    email, sig = token.rsplit(".", 1)
+    check = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+    return email if hmac.compare_digest(sig, check) else None
 
-
-def _get_auth_email(request: Request) -> Optional[str]:
-    token = request.cookies.get("pd_token")
-    return _verify_token(token) if token else None
-
-
-# =========================
-# Subscription + Limits helpers
-# =========================
-def _current_month_key() -> str:
-    # Use UTC to keep it simple/consistent across Render instances.
+def current_month():
     now = datetime.now(timezone.utc)
-    return f"{now.year:04d}-{now.month:02d}"
+    return f"{now.year}-{now.month:02d}"
+
+def get_user(request):
+    return verify(request.cookies.get("pd_token"))
+
+def is_active(email):
+    return load_tenants().get(email, {}).get("active", False)
 
 
-def _get_tenant(email: str) -> dict:
-    tenants = _load_tenants()
-    return tenants.get(email, {}) or {}
+# ================= ROUTES =================
+@app.get("/landing", response_class=HTMLResponse)
+def landing(request: Request):
+    return templates.TemplateResponse("landing.html", {"request": request})
 
 
-def _ensure_month_reset(email: str) -> None:
-    tenants = _load_tenants()
-    info = tenants.get(email, {}) or {}
-
-    month_key = _current_month_key()
-    stored_month = info.get("usage_month")
-    if stored_month != month_key:
-        info["usage_month"] = month_key
-        info["uploads_this_month"] = 0
-        tenants[email] = info
-        _save_tenants(tenants)
-
-
-def _is_active_subscriber(email: str) -> bool:
-    info = _get_tenant(email)
-    return bool(info and info.get("active") is True)
-
-
-def _plan_for(email: str) -> str:
-    info = _get_tenant(email)
-    plan = (info.get("plan") or "basic").lower()
-    return "pro" if plan == "pro" else "basic"
-
-
-def _limit_for_plan(plan: str) -> int:
-    return PRO_MONTHLY_UPLOAD_LIMIT if plan == "pro" else BASIC_MONTHLY_UPLOAD_LIMIT
-
-
-def _uploads_used(email: str) -> int:
-    info = _get_tenant(email)
-    return int(info.get("uploads_this_month", 0) or 0)
-
-
-def _can_upload(email: str) -> bool:
-    _ensure_month_reset(email)
-    plan = _plan_for(email)
-    used = _uploads_used(email)
-    limit = _limit_for_plan(plan)
-    return used < limit
-
-
-def _increment_upload(email: str) -> None:
-    tenants = _load_tenants()
-    info = tenants.get(email, {}) or {}
-    _ensure_month_reset(email)
-    tenants = _load_tenants()
-    info = tenants.get(email, {}) or {}
-    info["uploads_this_month"] = int(info.get("uploads_this_month", 0) or 0) + 1
-    tenants[email] = info
-    _save_tenants(tenants)
-
-
-# =========================
-# Upload/download helpers
-# =========================
-def _safe_pdf_name(name: str) -> str:
-    name = os.path.basename(name)
-    if not name.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Ongeldige bestandsnaam.")
-    return name
-
-
-def _latest_pdf_in_uploads(since_ts: float) -> Path | None:
-    pdfs = []
-    for p in glob.glob(str(UPLOAD_DIR / "*.pdf")):
-        try:
-            mtime = os.path.getmtime(p)
-            if mtime >= since_ts:
-                pdfs.append((mtime, Path(p)))
-        except OSError:
-            continue
-    if not pdfs:
-        return None
-    pdfs.sort(key=lambda x: x[0], reverse=True)
-    return pdfs[0][1]
-
-
-# =========================
-# Pages
-# =========================
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    email = _get_auth_email(request)
-    active = bool(email and _is_active_subscriber(email))
+def app_home(request: Request):
+    email = get_user(request)
+    tenants = load_tenants()
+    user = tenants.get(email, {}) if email else {}
 
-    plan = None
-    used = None
-    limit = None
-    if email:
-        _ensure_month_reset(email)
-        plan = _plan_for(email)
-        used = _uploads_used(email)
-        limit = _limit_for_plan(plan)
+    if user.get("usage_month") != current_month():
+        user["usage_month"] = current_month()
+        user["uploads"] = 0
+        tenants[email] = user
+        save_tenants(tenants)
 
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "email": email,
-            "active": active,
-            "plan": plan,
-            "used": used,
-            "limit": limit,
-        },
-    )
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "email": email,
+        "active": is_active(email) if email else False,
+        "plan": user.get("plan"),
+        "used": user.get("uploads", 0),
+        "limit": PRO_LIMIT if user.get("plan") == "pro" else BASIC_LIMIT
+    })
 
 
-# =========================
-# STRIPE: Checkout (subscription)
-# =========================
+# ================= STRIPE =================
 @app.post("/billing/checkout")
-async def billing_checkout(request: Request):
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="Stripe is niet geconfigureerd (STRIPE_SECRET_KEY ontbreekt).")
-
-    if not STRIPE_PRICE_BASIC or not STRIPE_PRICE_PRO:
-        raise HTTPException(status_code=500, detail="Price IDs ontbreken (STRIPE_PRICE_BASIC/PRO).")
-
+async def checkout(request: Request):
     form = await request.form()
-    email = (form.get("email") or "").strip().lower()
-    plan = (form.get("plan") or "basic").strip().lower()
+    email = form.get("email")
+    plan = form.get("plan", "basic")
 
-    if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="Vul een geldig e-mailadres in.")
-
-    if plan == "pro":
-        price_id = STRIPE_PRICE_PRO
-        plan = "pro"
-    else:
-        price_id = STRIPE_PRICE_BASIC
-        plan = "basic"
+    price = STRIPE_PRICE_PRO if plan == "pro" else STRIPE_PRICE_BASIC
 
     session = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=[{"price": price_id, "quantity": 1}],
+        line_items=[{"price": price, "quantity": 1}],
         success_url=f"{BASE_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}/billing/cancel",
         customer_email=email,
@@ -248,188 +117,85 @@ async def billing_checkout(request: Request):
 
 
 @app.get("/billing/success", response_class=HTMLResponse)
-def billing_success(request: Request, session_id: str = ""):
-    email = ""
-    if session_id:
-        try:
-            sess = stripe.checkout.Session.retrieve(session_id)
-            email = (sess.get("customer_email") or sess.get("metadata", {}).get("email") or "").lower()
-        except Exception:
-            email = ""
+def success(request: Request, session_id: str):
+    sess = stripe.checkout.Session.retrieve(session_id)
+    email = sess.customer_email
 
-    resp = templates.TemplateResponse("billing_result.html", {"request": request, "ok": True, "email": email})
-    if email:
-        resp.set_cookie("pd_token", _sign_token(email), httponly=True, samesite="lax")
+    tenants = load_tenants()
+    tenants[email] = {
+        "email": email,
+        "plan": sess.metadata.get("plan"),
+        "customer_id": sess.customer,
+        "subscription_id": sess.subscription,
+        "active": True,
+        "usage_month": current_month(),
+        "uploads": 0
+    }
+    save_tenants(tenants)
+
+    resp = templates.TemplateResponse("billing_result.html", {
+        "request": request,
+        "ok": True,
+        "email": email
+    })
+    resp.set_cookie("pd_token", sign(email), httponly=True)
     return resp
 
 
 @app.get("/billing/cancel", response_class=HTMLResponse)
-def billing_cancel(request: Request):
-    return templates.TemplateResponse("billing_result.html", {"request": request, "ok": False, "email": ""})
+def cancel(request: Request):
+    return templates.TemplateResponse("billing_result.html", {
+        "request": request,
+        "ok": False
+    })
 
 
-# =========================
-# STRIPE: Customer Portal
-# =========================
-@app.post("/billing/portal")
-async def billing_portal(request: Request):
-    email = _get_auth_email(request)
-    if not email:
-        raise HTTPException(status_code=401, detail="Niet ingelogd.")
-
-    tenants = _load_tenants()
-    info = tenants.get(email) or {}
-    customer_id = info.get("customer_id")
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="Geen Stripe customer gevonden voor dit account.")
-
-    portal = stripe.billing_portal.Session.create(customer=customer_id, return_url=f"{BASE_URL}/")
-    return RedirectResponse(portal.url, status_code=303)
-
-
-# =========================
-# STRIPE: Webhook
-# =========================
 @app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    if not STRIPE_WEBHOOK_SECRET:
-        raise HTTPException(status_code=500, detail="Webhook secret ontbreekt (STRIPE_WEBHOOK_SECRET).")
-
+async def webhook(request: Request):
     payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
+    sig = request.headers.get("stripe-signature")
+    event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
 
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid webhook signature.")
+    tenants = load_tenants()
 
-    tenants = _load_tenants()
-    etype = event["type"]
-    obj = event["data"]["object"]
-
-    # 1) Checkout completed: map email -> customer/subscription + plan
-    if etype == "checkout.session.completed":
-        email = (obj.get("customer_email") or obj.get("metadata", {}).get("email") or "").lower()
-        plan = (obj.get("metadata", {}).get("plan") or "basic").lower()
-        plan = "pro" if plan == "pro" else "basic"
-
-        customer_id = obj.get("customer")
-        subscription_id = obj.get("subscription")
-
-        if email:
-            info = tenants.get(email, {}) or {}
-            info.update(
-                {
-                    "email": email,
-                    "plan": plan,
-                    "customer_id": customer_id,
-                    "subscription_id": subscription_id,
-                }
-            )
-            tenants[email] = info
-            _save_tenants(tenants)
-
-    # 2) Subscription status updates
-    if etype in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
-        sub = obj
-        customer_id = sub.get("customer")
-        status = sub.get("status")  # active, canceled, trialing, etc.
-        is_active = status in ("active", "trialing")
-
-        # Find email by customer_id
-        email = None
-        for k, v in tenants.items():
-            if (v or {}).get("customer_id") == customer_id:
-                email = k
+    if event["type"].startswith("customer.subscription"):
+        sub = event["data"]["object"]
+        for email, data in tenants.items():
+            if data.get("customer_id") == sub.customer:
+                data["active"] = sub.status in ("active", "trialing")
+                tenants[email] = data
+                save_tenants(tenants)
                 break
 
-        if email:
-            info = tenants.get(email, {}) or {}
-            info.update(
-                {
-                    "subscription_status": status,
-                    "active": bool(is_active),
-                }
-            )
-            tenants[email] = info
-            _save_tenants(tenants)
-
-    return JSONResponse({"received": True})
+    return {"ok": True}
 
 
-# =========================
-# Upload (paywalled) + download
-# =========================
+# ================= CORE APP =================
 @app.post("/upload")
 async def upload(request: Request, file: UploadFile = File(...)):
-    email = _get_auth_email(request)
-    if not (email and _is_active_subscriber(email)):
-        raise HTTPException(status_code=402, detail="Abonnement vereist. Klik op 'Abonneren' om verder te gaan.")
+    email = get_user(request)
+    if not email or not is_active(email):
+        raise HTTPException(status_code=402, detail="Abonnement vereist")
 
-    _ensure_month_reset(email)
+    tenants = load_tenants()
+    user = tenants[email]
 
-    if not _can_upload(email):
-        plan = _plan_for(email)
-        used = _uploads_used(email)
-        limit = _limit_for_plan(plan)
-        raise HTTPException(
-            status_code=403,
-            detail=f"Uploadlimiet bereikt ({plan.upper()} plan: {used}/{limit} deze maand). Upgrade naar Pro.",
-        )
+    limit = PRO_LIMIT if user["plan"] == "pro" else BASIC_LIMIT
+    if user["uploads"] >= limit:
+        raise HTTPException(status_code=403, detail="Uploadlimiet bereikt")
 
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Geen bestand ontvangen.")
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Upload een CSV-bestand (.csv).")
+    path = UPLOAD_DIR / "events.csv"
+    path.write_bytes(await file.read())
 
-    csv_path = UPLOAD_DIR / "events.csv"
+    subprocess.run([sys.executable, "analyze.py"], check=True)
 
-    try:
-        content = await file.read()
-        if not content:
-            raise HTTPException(status_code=400, detail="Het CSV-bestand is leeg.")
-        csv_path.write_bytes(content)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Kon het CSV-bestand niet opslaan.")
+    user["uploads"] += 1
+    tenants[email] = user
+    save_tenants(tenants)
 
-    started = time.time()
-    analyze_script = BASE_DIR / "analyze.py"
-    if not analyze_script.exists():
-        raise HTTPException(status_code=500, detail="analyze.py niet gevonden op de server.")
-
-    try:
-        cmd = [sys.executable, str(analyze_script)]
-        result = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True, text=True)
-        if result.returncode != 0:
-            stderr = (result.stderr or "").strip()
-            stdout = (result.stdout or "").strip()
-            msg = "Analyse faalde."
-            if stderr:
-                msg += f" Details: {stderr[:900]}"
-            elif stdout:
-                msg += f" Output: {stdout[:900]}"
-            raise HTTPException(status_code=500, detail=msg)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Er ging iets mis bij het uitvoeren van de analyse.")
-
-    pdf_path = _latest_pdf_in_uploads(since_ts=started)
-    if not pdf_path or not pdf_path.exists():
-        raise HTTPException(status_code=500, detail="Analyse klaar, maar geen PDF gevonden in /uploads.")
-
-    # Count usage AFTER successful analysis
-    _increment_upload(email)
-
-    return JSONResponse({"status": "ok", "filename": pdf_path.name})
+    return {"filename": "process_report.pdf"}
 
 
 @app.get("/download/{filename}")
 def download(filename: str):
-    filename = _safe_pdf_name(filename)
-    pdf_path = UPLOAD_DIR / filename
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="PDF niet gevonden.")
-    return FileResponse(path=str(pdf_path), media_type="application/pdf", filename=filename)
+    return FileResponse(UPLOAD_DIR / filename, media_type="application/pdf")
