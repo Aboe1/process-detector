@@ -1,13 +1,14 @@
-# === PROCESS DETECTOR – MET IN-APP UPGRADE NAAR PRO ===
+# === PROCESS DETECTOR – PRO COMPARE FEATURE ===
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 import os, json, hmac, hashlib, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import stripe
 
@@ -56,15 +57,15 @@ def verify(token):
     check = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
     return email if hmac.compare_digest(sig, check) else None
 
-def current_month():
-    now = datetime.now(timezone.utc)
-    return f"{now.year}-{now.month:02d}"
-
 def get_user(request):
     return verify(request.cookies.get("pd_token"))
 
 def is_active(email):
     return load_tenants().get(email, {}).get("active", False)
+
+def current_month():
+    now = datetime.now(timezone.utc)
+    return f"{now.year}-{now.month:02d}"
 
 # ========== ROUTES ==========
 @app.get("/", response_class=HTMLResponse)
@@ -88,63 +89,40 @@ def home(request: Request):
         "plan": plan,
         "used": user.get("uploads", 0),
         "limit": PRO_LIMIT if plan == "pro" else BASIC_LIMIT,
-        "is_pro": plan == "pro"
+        "is_pro": plan == "pro",
+        "history": user.get("history", []) if plan == "pro" else []
     })
 
-# ========== STRIPE ==========
-@app.post("/billing/checkout")
-async def checkout(request: Request):
-    form = await request.form()
-    email = form.get("email")
-    plan = form.get("plan", "basic")
-
-    price = STRIPE_PRICE_PRO if plan == "pro" else STRIPE_PRICE_BASIC
-
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{"price": price, "quantity": 1}],
-        success_url=f"{BASE_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{BASE_URL}/",
-        customer_email=email,
-        metadata={"email": email, "plan": plan},
-    )
-    return RedirectResponse(session.url, status_code=303)
-
-# 🔥 NIEUW: in-app upgrade (Basic → Pro)
-@app.post("/billing/upgrade")
-async def upgrade(request: Request):
+# ========== COMPARE (PRO ONLY) ==========
+@app.post("/compare")
+async def compare(request: Request):
     email = get_user(request)
     if not email:
         raise HTTPException(status_code=401)
 
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{"price": STRIPE_PRICE_PRO, "quantity": 1}],
-        success_url=f"{BASE_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{BASE_URL}/",
-        customer_email=email,
-        metadata={"email": email, "plan": "pro"},
-    )
-    return RedirectResponse(session.url, status_code=303)
-
-@app.get("/billing/success", response_class=HTMLResponse)
-def success(request: Request, session_id: str):
-    sess = stripe.checkout.Session.retrieve(session_id)
-    email = sess.customer_email
-
     tenants = load_tenants()
-    tenants[email] = {
-        "email": email,
-        "plan": sess.metadata.get("plan"),
-        "customer_id": sess.customer,
-        "subscription_id": sess.subscription,
-        "active": True,
-        "usage_month": current_month(),
-        "uploads": 0
-    }
-    save_tenants(tenants)
+    user = tenants.get(email)
+    if not user or user.get("plan") != "pro":
+        raise HTTPException(status_code=403, detail="Alleen beschikbaar voor Pro.")
 
-    resp = RedirectResponse("/")
-    resp.set_cookie("pd_token", sign(email), httponly=True)
-    return resp
+    form = await request.form()
+    a = int(form.get("a", -1))
+    b = int(form.get("b", -1))
 
+    history = user.get("history", [])
+    if a < 0 or b < 0 or a == b or a >= len(history) or b >= len(history):
+        raise HTTPException(status_code=400, detail="Selecteer twee geldige analyses.")
+
+    h1 = history[a]
+    h2 = history[b]
+
+    delta_hours = h2.get("impact_hours", 0) - h1.get("impact_hours", 0)
+    delta_eur = h2.get("impact_eur", 0) - h1.get("impact_eur", 0)
+
+    return JSONResponse({
+        "from": h1["date"],
+        "to": h2["date"],
+        "delta_hours": round(delta_hours, 2),
+        "delta_eur": round(delta_eur, 2),
+        "improved": delta_hours < 0
+    })

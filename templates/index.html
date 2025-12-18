@@ -9,44 +9,50 @@
 <h1>Process Detector</h1>
 
 {% if active %}
-  <p>Ingelogd als <b>{{ email }}</b> — plan: <b>{{ plan|upper }}</b></p>
-  <p>Gebruik: {{ used }} / {{ limit }}</p>
-{% else %}
-  <form method="post" action="/billing/checkout">
-    <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
-    <button name="plan" value="basic">Start Basic</button>
-    <button name="plan" value="pro">Start Pro</button>
-  </form>
+  <p>Ingelogd als {{ email }} — plan: {{ plan|upper }}</p>
 {% endif %}
 
 <hr>
 
-{% if active and not is_pro %}
-  <div style="border:2px solid red; padding:10px; margin-bottom:20px;">
-    <h3>🚀 Upgrade naar Pro</h3>
-    <p>Krijg €-impact, analysegeschiedenis en onbeperkte uploads.</p>
-    <form method="post" action="/billing/upgrade">
-      <button>Upgrade naar Pro</button>
-    </form>
-  </div>
-{% endif %}
+{% if is_pro and history|length >= 2 %}
+<h3>Vergelijk analyses (Pro)</h3>
 
-<form id="uploadForm">
-  <input type="file" name="file" required {% if not active %}disabled{% endif %}>
-  <button type="submit" {% if not active %}disabled{% endif %}>Analyseer</button>
+<form id="compareForm">
+  <select name="a">
+    {% for h in history %}
+      <option value="{{ loop.index0 }}">{{ h.date }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="b">
+    {% for h in history %}
+      <option value="{{ loop.index0 }}">{{ h.date }}</option>
+    {% endfor %}
+  </select>
+
+  <button type="submit">Vergelijk</button>
 </form>
 
+<div id="compareResult"></div>
+
 <script>
-document.getElementById("uploadForm").onsubmit = async (e) => {
+document.getElementById("compareForm").onsubmit = async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const res = await fetch("/upload", { method: "POST", body: fd });
+  const res = await fetch("/compare", { method: "POST", body: fd });
   const data = await res.json();
-  if (data.filename) {
-    window.location = "/download/" + data.filename;
+
+  const el = document.getElementById("compareResult");
+  if (data.improved) {
+    el.innerHTML = `✅ Verbetering: ${Math.abs(data.delta_hours)} uur (${Math.abs(data.delta_eur)} €)`;
+  } else {
+    el.innerHTML = `⚠️ Verslechtering: +${data.delta_hours} uur (+${data.delta_eur} €)`;
   }
 };
 </script>
+{% elif active and not is_pro %}
+<p style="color:red;">👉 Upgrade naar Pro om analyses te vergelijken.</p>
+{% endif %}
 
 </body>
 </html>
