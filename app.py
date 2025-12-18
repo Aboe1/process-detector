@@ -1,14 +1,14 @@
-# === PROCESS DETECTOR – PRO COMPARE FEATURE ===
+# === PROCESS DETECTOR – DEMO MODE ===
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
+from starlette.responses import Response
 
-import os, json, hmac, hashlib, subprocess, sys
+import os, json, hmac, hashlib, subprocess, sys, shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import stripe
 
@@ -37,6 +37,10 @@ PRO_LIMIT = 999999
 stripe.api_key = STRIPE_SECRET_KEY
 TENANTS_FILE = DATA_DIR / "tenants.json"
 
+DEMO_CSV = UPLOAD_DIR / "demo.csv"
+DEMO_PDF = UPLOAD_DIR / "process_report_demo.pdf"
+DEMO_RATE = 60  # vaste € / uur
+
 # ========== HELPERS ==========
 def load_tenants():
     if TENANTS_FILE.exists():
@@ -63,22 +67,12 @@ def get_user(request):
 def is_active(email):
     return load_tenants().get(email, {}).get("active", False)
 
-def current_month():
-    now = datetime.now(timezone.utc)
-    return f"{now.year}-{now.month:02d}"
-
 # ========== ROUTES ==========
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     email = get_user(request)
     tenants = load_tenants()
     user = tenants.get(email, {}) if email else {}
-
-    if email and user.get("usage_month") != current_month():
-        user["usage_month"] = current_month()
-        user["uploads"] = 0
-        tenants[email] = user
-        save_tenants(tenants)
 
     plan = user.get("plan", "basic")
 
@@ -87,42 +81,36 @@ def home(request: Request):
         "email": email,
         "active": is_active(email) if email else False,
         "plan": plan,
-        "used": user.get("uploads", 0),
-        "limit": PRO_LIMIT if plan == "pro" else BASIC_LIMIT,
         "is_pro": plan == "pro",
-        "history": user.get("history", []) if plan == "pro" else []
+        "demo_used": request.cookies.get("pd_demo_used") == "true"
     })
 
-# ========== COMPARE (PRO ONLY) ==========
-@app.post("/compare")
-async def compare(request: Request):
-    email = get_user(request)
-    if not email:
-        raise HTTPException(status_code=401)
+# ========== DEMO MODE ==========
+@app.post("/demo")
+async def demo(request: Request):
+    if request.cookies.get("pd_demo_used") == "true":
+        raise HTTPException(status_code=403, detail="Demo al gebruikt.")
 
-    tenants = load_tenants()
-    user = tenants.get(email)
-    if not user or user.get("plan") != "pro":
-        raise HTTPException(status_code=403, detail="Alleen beschikbaar voor Pro.")
+    if not DEMO_CSV.exists():
+        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt.")
 
-    form = await request.form()
-    a = int(form.get("a", -1))
-    b = int(form.get("b", -1))
+    # kopieer demo.csv → events.csv
+    shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
 
-    history = user.get("history", [])
-    if a < 0 or b < 0 or a == b or a >= len(history) or b >= len(history):
-        raise HTTPException(status_code=400, detail="Selecteer twee geldige analyses.")
+    # run analyse
+    subprocess.run(
+        [sys.executable, "analyze.py", str(DEMO_RATE), DEMO_PDF.name],
+        check=True
+    )
 
-    h1 = history[a]
-    h2 = history[b]
+    resp = RedirectResponse(f"/download/{DEMO_PDF.name}")
+    resp.set_cookie("pd_demo_used", "true", max_age=60*60*24*365)
+    return resp
 
-    delta_hours = h2.get("impact_hours", 0) - h1.get("impact_hours", 0)
-    delta_eur = h2.get("impact_eur", 0) - h1.get("impact_eur", 0)
-
-    return JSONResponse({
-        "from": h1["date"],
-        "to": h2["date"],
-        "delta_hours": round(delta_hours, 2),
-        "delta_eur": round(delta_eur, 2),
-        "improved": delta_hours < 0
-    })
+# ========== DOWNLOAD ==========
+@app.get("/download/{filename}")
+def download(filename: str):
+    path = UPLOAD_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="application/pdf")

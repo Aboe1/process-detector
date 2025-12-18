@@ -8,50 +8,28 @@
 
 <h1>Process Detector</h1>
 
-{% if active %}
-  <p>Ingelogd als {{ email }} — plan: {{ plan|upper }}</p>
-{% endif %}
+{% if not active %}
+  <h3>Probeer de demo</h3>
 
-<hr>
+  {% if not demo_used %}
+    <form method="post" action="/demo">
+      <button>▶️ Analyseer demo-data</button>
+    </form>
+  {% else %}
+    <p>✅ Demo al gebruikt</p>
+  {% endif %}
 
-{% if is_pro and history|length >= 2 %}
-<h3>Vergelijk analyses (Pro)</h3>
+  <hr>
 
-<form id="compareForm">
-  <select name="a">
-    {% for h in history %}
-      <option value="{{ loop.index0 }}">{{ h.date }}</option>
-    {% endfor %}
-  </select>
+  <h3>Start abonnement</h3>
+  <form method="post" action="/billing/checkout">
+    <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
+    <button name="plan" value="basic">Basic</button>
+    <button name="plan" value="pro">Pro</button>
+  </form>
 
-  <select name="b">
-    {% for h in history %}
-      <option value="{{ loop.index0 }}">{{ h.date }}</option>
-    {% endfor %}
-  </select>
-
-  <button type="submit">Vergelijk</button>
-</form>
-
-<div id="compareResult"></div>
-
-<script>
-document.getElementById("compareForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const res = await fetch("/compare", { method: "POST", body: fd });
-  const data = await res.json();
-
-  const el = document.getElementById("compareResult");
-  if (data.improved) {
-    el.innerHTML = `✅ Verbetering: ${Math.abs(data.delta_hours)} uur (${Math.abs(data.delta_eur)} €)`;
-  } else {
-    el.innerHTML = `⚠️ Verslechtering: +${data.delta_hours} uur (+${data.delta_eur} €)`;
-  }
-};
-</script>
-{% elif active and not is_pro %}
-<p style="color:red;">👉 Upgrade naar Pro om analyses te vergelijken.</p>
+{% else %}
+  <p>Welkom terug {{ email }}</p>
 {% endif %}
 
 </body>
