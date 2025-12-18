@@ -5,15 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Process Detector – Ontdek procesknelpunten</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #111827; background: #ffffff; }
-    header { padding: 80px 20px; text-align: center; background: #f9fafb; }
-    h1 { font-size: 40px; margin-bottom: 16px; }
-    p { font-size: 18px; color: #374151; max-width: 760px; margin: 0 auto 24px; }
-    .btn { display: inline-block; padding: 14px 22px; background: #111827; color: white; border-radius: 10px; text-decoration: none; font-weight: 700; }
-    section { padding: 60px 20px; max-width: 1020px; margin: auto; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 24px; background: #ffffff; }
-    footer { padding: 40px 20px; text-align: center; background: #f9fafb; color: #6b7280; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      color: #111827;
+      background: #ffffff;
+    }
+    header {
+      padding: 90px 20px;
+      text-align: center;
+      background: #f9fafb;
+    }
+    h1 {
+      font-size: 42px;
+      margin-bottom: 16px;
+    }
+    p {
+      font-size: 18px;
+      color: #374151;
+      max-width: 760px;
+      margin: 0 auto 28px;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 22px;
+      background: #111827;
+      color: white;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 700;
+      margin: 6px;
+    }
+    .btn.secondary {
+      background: #ffffff;
+      color: #111827;
+      border: 2px solid #111827;
+    }
+    section {
+      padding: 60px 20px;
+      max-width: 1040px;
+      margin: auto;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 24px;
+      background: #ffffff;
+    }
+    footer {
+      padding: 40px 20px;
+      text-align: center;
+      background: #f9fafb;
+      color: #6b7280;
+    }
   </style>
 </head>
 <body>
@@ -21,57 +70,60 @@
 <header>
   <h1>Ontdek waar je proces tijd en geld verliest</h1>
   <p>
-    Upload een CSV event-log en ontvang binnen minuten een helder PDF-rapport met
-    procesknelpunten, impact in uren én een schatting in euro’s.
+    Upload normaal je eigen CSV, maar probeer nu eerst een demo.
+    Binnen 1 minuut ontvang je een professioneel PDF-rapport
+    met procesknelpunten en impact in uren en euro’s.
   </p>
-  <a href="/" class="btn">Start met analyseren</a>
+
+  <!-- 🔥 DEMO CTA -->
+  <form method="post" action="/demo" style="display:inline;">
+    <button class="btn">▶️ Probeer de demo</button>
+  </form>
+
+  <a href="/" class="btn secondary">Ga naar de app</a>
 </header>
 
 <section>
-  <h2>Wat je krijgt</h2>
+  <h2>Wat laat de demo zien?</h2>
   <div class="grid">
     <div class="card">
-      <h3>Top knelpunten</h3>
-      <p>De grootste vertragingen, gesorteerd op impact.</p>
+      <h3>Procesvertragingen</h3>
+      <p>De grootste knelpunten gesorteerd op impact.</p>
     </div>
     <div class="card">
       <h3>Impact in €</h3>
-      <p>Vul € per uur in en maak impact direct begrijpelijk voor management.</p>
+      <p>Gebaseerd op een vaste kostprijs per uur.</p>
     </div>
     <div class="card">
-      <h3>Analysegeschiedenis</h3>
-      <p>Her-download eerdere rapporten en bouw een maandelijkse baseline.</p>
+      <h3>Direct deelbaar</h3>
+      <p>PDF klaar om te delen met management of team.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>Hoe werkt het?</h2>
-  <div class="grid">
-    <div class="card"><h3>1) Upload CSV</h3><p>case_id, timestamp, event/stap.</p></div>
-    <div class="card"><h3>2) Automatische analyse</h3><p>Wij detecteren structurele vertragingen.</p></div>
-    <div class="card"><h3>3) Download PDF</h3><p>Direct klaar om te delen met je team.</p></div>
-  </div>
-</section>
-
-<section>
-  <h2>Pricing</h2>
+  <h2>Wat gebeurt er na de demo?</h2>
   <div class="grid">
     <div class="card">
-      <h3>Basic</h3>
-      <p><b>€19 / maand</b></p>
-      <p>Voor kleine teams (beperkte uploads).</p>
+      <h3>Je ziet echte output</h3>
+      <p>Geen screenshots, maar een echt rapport.</p>
     </div>
     <div class="card">
-      <h3>Pro</h3>
-      <p><b>€49 / maand</b></p>
-      <p>Voor intensief gebruik (hoge/geen limiet).</p>
+      <h3>Gebruik je eigen data</h3>
+      <p>Start een abonnement om je eigen processen te analyseren.</p>
+    </div>
+    <div class="card">
+      <h3>Geen verplichtingen</h3>
+      <p>Je zit nergens aan vast.</p>
     </div>
   </div>
 </section>
 
 <footer>
-  <p>© Process Detector • <a href="/" style="color:#111827;">Ga naar app</a></p>
+  <p>
+    © Process Detector •
+    <a href="/" style="color:#111827;">Ga naar de app</a>
+  </p>
 </footer>
 
 </body>

@@ -7,6 +7,11 @@
 <body>
 
 <h1>Process Detector</h1>
+{% if demo_used %}
+  <p style="color:#16a34a;">
+    ✅ Je hebt de demo gebruikt. Start een abonnement om je eigen data te analyseren.
+  </p>
+{% endif %}
 
 {% if not active %}
   <h3>Probeer de demo</h3>
