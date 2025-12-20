@@ -4,7 +4,9 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timezone
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+)
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -77,7 +79,10 @@ df = df.sort_values(["case_id", "timestamp"])
 # DUUR PER STAP
 # ===============================
 df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
-df["duration_hours"] = (df["next_timestamp"] - df["timestamp"]).dt.total_seconds().div(3600)
+df["duration_hours"] = (
+    df["next_timestamp"] - df["timestamp"]
+).dt.total_seconds().div(3600)
+
 df = df.dropna(subset=["duration_hours"])
 df = df[df["duration_hours"] >= 0]
 
@@ -85,7 +90,11 @@ df = df[df["duration_hours"] >= 0]
 # ===============================
 # BASELINE + DELAYS
 # ===============================
-baseline = df.groupby("event")["duration_hours"].median().rename("baseline_hours")
+baseline = (
+    df.groupby("event")["duration_hours"]
+    .median()
+    .rename("baseline_hours")
+)
 df = df.join(baseline, on="event")
 
 df["is_delay"] = df["duration_hours"] > 1.5 * df["baseline_hours"]
@@ -116,9 +125,39 @@ total_impact_eur = float(delays["impact_eur"].sum()) if not delays.empty else 0.
 
 
 # ===============================
+# SLA / KPI BEREKENINGEN (NIEUW)
+# ===============================
+total_tickets = df["case_id"].nunique()
+
+ticket_durations = df.groupby("case_id")["duration_hours"].sum()
+avg_wait_per_ticket = float(ticket_durations.mean()) if not ticket_durations.empty else 0.0
+
+SLA_HOURS = 24
+sla_breach_pct = (
+    float((ticket_durations > SLA_HOURS).mean() * 100)
+    if not ticket_durations.empty else 0.0
+)
+
+avg_step_wait = (
+    df.groupby("event")["duration_hours"]
+    .mean()
+    .sort_values(ascending=False)
+)
+
+top_sla_steps = avg_step_wait.head(3)
+
+monthly_loss_estimate = (
+    avg_wait_per_ticket * eur_per_hour * total_tickets
+    if eur_per_hour > 0 else 0.0
+)
+potential_saving_estimate = monthly_loss_estimate * 0.2
+
+
+# ===============================
 # PDF GENERATIE
 # ===============================
 styles = getSampleStyleSheet()
+
 doc = SimpleDocTemplate(
     str(OUTPUT_PDF),
     pagesize=A4,
@@ -129,34 +168,76 @@ doc = SimpleDocTemplate(
 )
 
 elements = []
-elements.append(Paragraph("<b>Process Detector – Analyse Rapport</b>", styles["Title"]))
+
+# ---- Titel ----
+elements.append(Paragraph("<b>Prolixia – Support SLA Analyse Rapport</b>", styles["Title"]))
 elements.append(Spacer(1, 12))
 
 elements.append(Paragraph(
-    "Dit rapport toont structurele procesvertragingen op basis van event-log analyse.",
-    styles["Normal"],
-))
-elements.append(Spacer(1, 12))
-
-if eur_per_hour > 0:
-    elements.append(Paragraph(
-        f"<b>Kostprijs per uur:</b> €{eur_per_hour:.2f}",
-        styles["Normal"],
-    ))
-    elements.append(Spacer(1, 6))
-
-elements.append(Paragraph(
-    f"<b>Totale impact:</b> {total_impact_hours:.2f} uur"
-    + (f" (≈ €{total_impact_eur:,.2f})" if eur_per_hour > 0 else ""),
+    "Dit rapport toont structurele procesvertragingen en SLA-impact "
+    "op basis van event-log analyse.",
     styles["Normal"],
 ))
 elements.append(Spacer(1, 16))
 
+
+# ===============================
+# SLA / KPI OVERZICHT (NIEUWE SECTIE)
+# ===============================
+elements.append(Paragraph("<b>SLA & KPI Overzicht</b>", styles["Heading2"]))
+elements.append(Spacer(1, 10))
+
+elements.append(Paragraph(f"<b>Aantal tickets:</b> {total_tickets}", styles["Normal"]))
+elements.append(Spacer(1, 6))
+
+elements.append(Paragraph(
+    f"<b>Gemiddelde wachttijd per ticket:</b> {avg_wait_per_ticket:.2f} uur",
+    styles["Normal"],
+))
+elements.append(Spacer(1, 6))
+
+elements.append(Paragraph(
+    f"<b>Tickets boven SLA (24 uur):</b> {sla_breach_pct:.1f}%",
+    styles["Normal"],
+))
+elements.append(Spacer(1, 6))
+
+if eur_per_hour > 0:
+    elements.append(Paragraph(
+        f"<b>Geschatte maandelijkse kosten:</b> €{monthly_loss_estimate:,.0f}",
+        styles["Normal"],
+    ))
+    elements.append(Spacer(1, 6))
+
+    elements.append(Paragraph(
+        f"<b>Potentiële besparing (20%):</b> €{potential_saving_estimate:,.0f}",
+        styles["Normal"],
+    ))
+
+elements.append(Spacer(1, 16))
+
+elements.append(Paragraph("<b>Top SLA-veroorzakers</b>", styles["Heading3"]))
+elements.append(Spacer(1, 8))
+
+for step, hours in top_sla_steps.items():
+    elements.append(Paragraph(
+        f"{step}: gemiddeld {hours:.2f} uur wachttijd",
+        styles["Normal"],
+    ))
+
+elements.append(Spacer(1, 24))
+
+
+# ===============================
+# BESTAANDE TOP PROCESKNELPUNTEN
+# ===============================
 elements.append(Paragraph("<b>Top procesknelpunten</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
 if summary.empty:
-    elements.append(Paragraph("Geen significante procesvertragingen gedetecteerd.", styles["Normal"]))
+    elements.append(
+        Paragraph("Geen significante procesvertragingen gedetecteerd.", styles["Normal"])
+    )
 else:
     if eur_per_hour > 0:
         table_data = [["Processtap", "Aantal", "Impact (uren)", "Impact (€)"]]
@@ -188,18 +269,27 @@ else:
 
 doc.build(elements)
 
+
 # ===============================
-# METRICS OPSLAAN VOOR APP (history)
+# METRICS OPSLAAN (VOOR APP / HISTORY)
 # ===============================
 metrics = {
     "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
     "eur_per_hour": eur_per_hour,
+    "total_tickets": total_tickets,
+    "avg_wait_per_ticket": avg_wait_per_ticket,
+    "sla_breach_pct": sla_breach_pct,
     "total_impact_hours": total_impact_hours,
     "total_impact_eur": total_impact_eur,
+    "monthly_loss_estimate": monthly_loss_estimate,
+    "potential_saving_estimate": potential_saving_estimate,
     "pdf": OUTPUT_PDF.name,
 }
-METRICS_PATH.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+
+METRICS_PATH.write_text(
+    json.dumps(metrics, ensure_ascii=False, indent=2),
+    encoding="utf-8",
+)
 
 print(f"PDF gegenereerd: {OUTPUT_PDF}")
-print(f"Metrics: {METRICS_PATH}")
-
+print(f"Metrics opgeslagen: {METRICS_PATH}")
