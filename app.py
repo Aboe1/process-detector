@@ -34,11 +34,14 @@ stripe.api_key = STRIPE_SECRET_KEY
 # ================= HELPERS =================
 def load_tenants():
     if TENANTS_FILE.exists():
-        return json.loads(TENANTS_FILE.read_text())
+        try:
+            return json.loads(TENANTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
     return {}
 
 def save_tenants(data):
-    TENANTS_FILE.write_text(json.dumps(data, indent=2))
+    TENANTS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def sign(email: str):
     sig = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
@@ -59,7 +62,7 @@ def is_active(email: str | None):
         return False
     return load_tenants().get(email, {}).get("active", False)
 
-# ================= HOME =================
+# ================= ROUTES =================
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request})
@@ -86,10 +89,7 @@ def demo(request: Request):
         raise HTTPException(status_code=403, detail="Demo al gebruikt")
 
     if not DEMO_CSV.exists():
-        raise HTTPException(
-            status_code=500,
-            detail="Demo CSV ontbreekt. Voeg uploads/demo.csv toe aan je repo."
-        )
+        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt. Voeg uploads/demo.csv toe aan je repo.")
 
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
 
@@ -99,11 +99,8 @@ def demo(request: Request):
         check=True
     )
 
-    # ✅ FIX: 303 zorgt ervoor dat de browser daarna een GET doet (geen Method Not Allowed)
-    resp = RedirectResponse(
-        url=f"/download/{pdf_name}",
-        status_code=303
-    )
+    # ✅ 303 = force GET after POST (fix Method Not Allowed)
+    resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
     return resp
 
@@ -125,7 +122,7 @@ def subscribe(plan: str, email: str = Form(...)):
         customer_email=email,
         success_url=f"{BASE_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}/app",
-        metadata={"plan": plan, "email": email}
+        metadata={"plan": plan, "email": email},
     )
 
     return RedirectResponse(session.url, status_code=303)
@@ -136,7 +133,7 @@ def success(session_id: str):
     session = stripe.checkout.Session.retrieve(session_id)
 
     email = session.customer_email
-    plan = session.metadata.get("plan", "basic")
+    plan = session.metadata.get("plan", "basic") if session.metadata else "basic"
 
     tenants = load_tenants()
     tenants[email] = {
@@ -146,7 +143,6 @@ def success(session_id: str):
     }
     save_tenants(tenants)
 
-    # Na betaling direct naar app (handiger dan landing)
     resp = RedirectResponse("/app", status_code=303)
     resp.set_cookie("pd_token", sign(email), httponly=True, max_age=31536000)
     return resp
@@ -158,19 +154,14 @@ async def stripe_webhook(request: Request):
     sig = request.headers.get("stripe-signature")
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+        raise HTTPException(status_code=400, detail="Invalid webhook")
 
-    # NOTE: dit stuk is "best effort" — Stripe events verschillen per config.
+    # Basic handling (best-effort)
     if event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
-        # ⚠️ Niet elke event heeft customer_email direct.
-        # Jij gebruikte dit al; laten we het behouden maar guarden.
-        email = sub.get("customer_email")
-
+        email = sub.get("customer_email")  # not always present depending on Stripe setup
         if email:
             tenants = load_tenants()
             if email in tenants:
@@ -209,4 +200,3 @@ def download(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden")
     return FileResponse(path, media_type="application/pdf")
-
