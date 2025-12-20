@@ -61,7 +61,14 @@ def is_active(email: str | None):
 
 # ================= HOME =================
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
+def landing(request: Request):
+    return templates.TemplateResponse("landing.html", {
+        "request": request
+    })
+
+
+@app.get("/app", response_class=HTMLResponse)
+def app_home(request: Request):
     email = get_user(request)
     tenants = load_tenants()
     user = tenants.get(email, {}) if email else {}
