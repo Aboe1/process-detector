@@ -1,67 +1,76 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Process Detector – Ontdek procesknelpunten</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prolixia – Ontdek waar je proces vastloopt</title>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       margin: 0;
-      color: #111827;
+      color: #0f172a;
       background: #ffffff;
+      line-height: 1.6;
     }
     header {
-      padding: 90px 20px;
+      padding: 96px 20px;
       text-align: center;
-      background: #f9fafb;
+      background: linear-gradient(180deg, #f8fafc, #ffffff);
     }
     h1 {
-      font-size: 42px;
-      margin-bottom: 16px;
+      font-size: 44px;
+      max-width: 900px;
+      margin: 0 auto 20px;
     }
     p {
       font-size: 18px;
-      color: #374151;
       max-width: 760px;
       margin: 0 auto 28px;
+      color: #334155;
     }
     .btn {
       display: inline-block;
-      padding: 14px 22px;
-      background: #111827;
-      color: white;
+      padding: 14px 26px;
       border-radius: 10px;
       text-decoration: none;
       font-weight: 700;
       margin: 6px;
     }
-    .btn.secondary {
+    .btn-primary {
+      background: #0f172a;
+      color: #ffffff;
+    }
+    .btn-secondary {
+      border: 2px solid #0f172a;
+      color: #0f172a;
       background: #ffffff;
-      color: #111827;
-      border: 2px solid #111827;
     }
     section {
-      padding: 60px 20px;
-      max-width: 1040px;
+      padding: 80px 20px;
+      max-width: 1100px;
       margin: auto;
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 24px;
+      gap: 28px;
+      margin-top: 40px;
     }
     .card {
       border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 24px;
+      border-radius: 16px;
+      padding: 28px;
       background: #ffffff;
     }
+    .muted {
+      color: #64748b;
+      font-size: 16px;
+    }
     footer {
-      padding: 40px 20px;
+      background: #f8fafc;
+      padding: 48px 20px;
       text-align: center;
-      background: #f9fafb;
-      color: #6b7280;
+      color: #64748b;
     }
   </style>
 </head>
@@ -70,60 +79,102 @@
 <header>
   <h1>Ontdek waar je proces tijd en geld verliest</h1>
   <p>
-    Upload normaal je eigen CSV, maar probeer nu eerst een demo.
-    Binnen 1 minuut ontvang je een professioneel PDF-rapport
-    met procesknelpunten en impact in uren en euro’s.
+    Prolixia analyseert je event-log data en laat automatisch zien
+    welke processtappen structureel vertragen — inclusief impact in uren en euro’s.
   </p>
 
-  <!-- 🔥 DEMO CTA -->
   <form method="post" action="/demo" style="display:inline;">
-    <button class="btn">▶️ Probeer de demo</button>
+    <button class="btn btn-primary">▶️ Probeer de demo</button>
   </form>
 
-  <a href="/" class="btn secondary">Ga naar de app</a>
+  <a href="/" class="btn btn-secondary">Ga naar de app</a>
 </header>
 
 <section>
-  <h2>Wat laat de demo zien?</h2>
+  <h2>Voor wie is Prolixia?</h2>
+  <p class="muted">
+    Voor teams die werken met cases, tickets of orders en grip willen op doorlooptijd.
+  </p>
+
   <div class="grid">
     <div class="card">
-      <h3>Procesvertragingen</h3>
-      <p>De grootste knelpunten gesorteerd op impact.</p>
+      <h3>Support & ITSM</h3>
+      <p>Zie waarom tickets blijven hangen tussen stappen.</p>
     </div>
     <div class="card">
-      <h3>Impact in €</h3>
-      <p>Gebaseerd op een vaste kostprijs per uur.</p>
+      <h3>Operations & Backoffice</h3>
+      <p>Ontdek structurele wachttijden in je workflow.</p>
     </div>
     <div class="card">
-      <h3>Direct deelbaar</h3>
-      <p>PDF klaar om te delen met management of team.</p>
+      <h3>Orderverwerking</h3>
+      <p>Analyseer vertragingen tussen order, review en levering.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>Wat gebeurt er na de demo?</h2>
+  <h2>Wat krijg je concreet?</h2>
   <div class="grid">
     <div class="card">
-      <h3>Je ziet echte output</h3>
-      <p>Geen screenshots, maar een echt rapport.</p>
+      <h3>Top procesknelpunten</h3>
+      <p>Gesorteerd op grootste impact.</p>
     </div>
     <div class="card">
-      <h3>Gebruik je eigen data</h3>
-      <p>Start een abonnement om je eigen processen te analyseren.</p>
+      <h3>Impact in uren & €</h3>
+      <p>Geen dashboards, maar direct begrijpelijke cijfers.</p>
     </div>
     <div class="card">
-      <h3>Geen verplichtingen</h3>
-      <p>Je zit nergens aan vast.</p>
+      <h3>Professioneel PDF-rapport</h3>
+      <p>Klaar om te delen met management of klanten.</p>
     </div>
   </div>
 </section>
 
+<section>
+  <h2>Hoe werkt het?</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>1. Upload CSV</h3>
+      <p>Gebruik je bestaande event-log data.</p>
+    </div>
+    <div class="card">
+      <h3>2. Automatische analyse</h3>
+      <p>Prolixia detecteert afwijkingen en vertragingen.</p>
+    </div>
+    <div class="card">
+      <h3>3. Ontvang je rapport</h3>
+      <p>Direct inzicht, zonder consultants.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Pricing</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Basic</h3>
+      <p><strong>€19 / maand</strong></p>
+      <p class="muted">Voor kleine teams en eerste inzichten.</p>
+    </div>
+    <div class="card">
+      <h3>Pro</h3>
+      <p><strong>€49 / maand</strong></p>
+      <p class="muted">€-impact, historie en vergelijken.</p>
+    </div>
+  </div>
+</section>
+
+<section style="text-align:center;">
+  <h2>Klaar om inzicht te krijgen?</h2>
+  <p class="muted">Probeer de demo of start direct met je eigen data.</p>
+
+  <form method="post" action="/demo" style="display:inline;">
+    <button class="btn btn-primary">▶️ Start demo</button>
+  </form>
+</section>
+
 <footer>
-  <p>
-    © Process Detector •
-    <a href="/" style="color:#111827;">Ga naar de app</a>
-  </p>
+  © Prolixia • Process Intelligence
 </footer>
 
 </body>
