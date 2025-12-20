@@ -26,7 +26,7 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
-BASE_URL = os.getenv("BASE_URL")
+BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -62,9 +62,7 @@ def is_active(email: str | None):
 # ================= HOME =================
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request):
-    return templates.TemplateResponse("landing.html", {
-        "request": request
-    })
+    return templates.TemplateResponse("landing.html", {"request": request})
 
 
 @app.get("/app", response_class=HTMLResponse)
@@ -85,7 +83,13 @@ def app_home(request: Request):
 @app.post("/demo")
 def demo(request: Request):
     if request.cookies.get("pd_demo_used") == "true":
-        raise HTTPException(403, "Demo al gebruikt")
+        raise HTTPException(status_code=403, detail="Demo al gebruikt")
+
+    if not DEMO_CSV.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Demo CSV ontbreekt. Voeg uploads/demo.csv toe aan je repo."
+        )
 
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
 
@@ -95,7 +99,11 @@ def demo(request: Request):
         check=True
     )
 
-    resp = RedirectResponse(f"/download/{pdf_name}")
+    # ✅ FIX: 303 zorgt ervoor dat de browser daarna een GET doet (geen Method Not Allowed)
+    resp = RedirectResponse(
+        url=f"/download/{pdf_name}",
+        status_code=303
+    )
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
     return resp
 
@@ -103,7 +111,10 @@ def demo(request: Request):
 @app.post("/subscribe/{plan}")
 def subscribe(plan: str, email: str = Form(...)):
     if plan not in ("basic", "pro"):
-        raise HTTPException(400)
+        raise HTTPException(status_code=400, detail="Ongeldig plan")
+
+    if not STRIPE_SECRET_KEY or not STRIPE_PRICE_BASIC or not STRIPE_PRICE_PRO:
+        raise HTTPException(status_code=500, detail="Stripe is niet geconfigureerd")
 
     price_id = STRIPE_PRICE_BASIC if plan == "basic" else STRIPE_PRICE_PRO
 
@@ -113,7 +124,7 @@ def subscribe(plan: str, email: str = Form(...)):
         line_items=[{"price": price_id, "quantity": 1}],
         customer_email=email,
         success_url=f"{BASE_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{BASE_URL}/",
+        cancel_url=f"{BASE_URL}/app",
         metadata={"plan": plan, "email": email}
     )
 
@@ -135,7 +146,8 @@ def success(session_id: str):
     }
     save_tenants(tenants)
 
-    resp = RedirectResponse("/")
+    # Na betaling direct naar app (handiger dan landing)
+    resp = RedirectResponse("/app", status_code=303)
     resp.set_cookie("pd_token", sign(email), httponly=True, max_age=31536000)
     return resp
 
@@ -150,16 +162,20 @@ async def stripe_webhook(request: Request):
             payload, sig, STRIPE_WEBHOOK_SECRET
         )
     except Exception:
-        raise HTTPException(400)
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
+    # NOTE: dit stuk is "best effort" — Stripe events verschillen per config.
     if event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
-        email = sub["customer_email"]
+        # ⚠️ Niet elke event heeft customer_email direct.
+        # Jij gebruikte dit al; laten we het behouden maar guarden.
+        email = sub.get("customer_email")
 
-        tenants = load_tenants()
-        if email in tenants:
-            tenants[email]["active"] = False
-            save_tenants(tenants)
+        if email:
+            tenants = load_tenants()
+            if email in tenants:
+                tenants[email]["active"] = False
+                save_tenants(tenants)
 
     return JSONResponse({"status": "ok"})
 
@@ -172,7 +188,7 @@ async def upload(
 ):
     email = get_user(request)
     if not email or not is_active(email):
-        raise HTTPException(402)
+        raise HTTPException(status_code=402, detail="Abonnement vereist")
 
     (UPLOAD_DIR / "events.csv").write_bytes(await file.read())
 
@@ -191,5 +207,6 @@ async def upload(
 def download(filename: str):
     path = UPLOAD_DIR / filename
     if not path.exists():
-        raise HTTPException(404)
+        raise HTTPException(status_code=404, detail="Bestand niet gevonden")
     return FileResponse(path, media_type="application/pdf")
+
