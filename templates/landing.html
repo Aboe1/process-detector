@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prolixia – Waarom blijven supporttickets liggen?</title>
+  <title>Prolixia – Verlaag SLA-breaches in support</title>
+
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -21,6 +22,12 @@
       font-size: 44px;
       max-width: 900px;
       margin: 0 auto 20px;
+    }
+    h2 {
+      font-size: 32px;
+    }
+    h3 {
+      font-size: 20px;
     }
     p {
       font-size: 18px;
@@ -77,26 +84,67 @@
     a { color: #0f172a; }
   </style>
 </head>
+
 <body>
 
+<!-- HERO -->
 <header>
-  <h1>Ontdek waarom supporttickets blijven liggen</h1>
+  <h1>Verlaag SLA-breaches door inzicht in ticketvertragingen</h1>
   <p>
-    Prolixia analyseert je support data en laat automatisch zien welke ticketstappen
-    structureel vertragen — inclusief impact in uren en euro’s.
+    Prolixia analyseert je supportdata en laat automatisch zien
+    <strong>waar tickets structureel vastlopen</strong> — inclusief impact in uren en euro’s.
   </p>
 
   <form method="post" action="/demo" style="display:inline;">
-    <button class="btn btn-primary">▶️ Probeer de demo (geen account nodig)</button>
+    <button class="btn btn-primary">
+      ▶️ Bekijk demo-rapport
+    </button>
   </form>
 
-  <a href="/" class="btn btn-secondary">Ga naar de app</a>
+  <a href="/app" class="btn btn-secondary">
+    Start met eigen data
+  </a>
 
   <p class="muted" style="margin-top:16px;">
-    Werkt met CSV-exporten uit o.a. Zendesk, Freshdesk, Jira Service Management
+    Werkt met CSV-exporten uit o.a. Zendesk, Freshdesk en Jira Service Management
   </p>
 </header>
 
+<!-- SLA / IMPACT -->
+<section>
+  <h2>Wat kost vertraging in support écht?</h2>
+  <p class="muted">
+    Gemiddelden verbergen problemen. Prolixia laat zien waar SLA-tijd structureel verloren gaat.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>⏱️ 37 uur wachttijd</h3>
+      <p>
+        Gemiddeld per ticket verloren aan wachten tussen stappen
+        zoals triage en <em>waiting for customer</em>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>💸 €2.220 per maand</h3>
+      <p>
+        Bij €60 per uur aan supportkosten loopt vertraging snel op.
+        Deze kosten blijven vaak onzichtbaar.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>📉 34% SLA-breaches</h3>
+      <p>
+        Supportteams ontdekken structurele oorzaken
+        in plaats van incidenten achteraf te verklaren.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- HERKENNING -->
 <section>
   <h2>Herken je dit?</h2>
   <div class="grid">
@@ -106,7 +154,7 @@
     </div>
     <div class="card">
       <h3>SLA’s onder druk</h3>
-      <p>Gemiddelden verbergen de echte knelpunten — zeker bij escalaties.</p>
+      <p>Dashboards tonen gemiddelden, maar verbergen knelpunten.</p>
     </div>
     <div class="card">
       <h3>Geen inzicht per stap</h3>
@@ -115,6 +163,7 @@
   </div>
 </section>
 
+<!-- WAARDE -->
 <section>
   <h2>Wat Prolixia doet voor supportteams</h2>
   <div class="grid">
@@ -133,6 +182,29 @@
   </div>
 </section>
 
+<!-- POSITIONERING -->
+<section>
+  <h2>Waarom dashboards dit niet laten zien</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Supporttools</h3>
+      <p>Tonenn aantallen en gemiddelden, maar niet waar tickets vastlopen.</p>
+    </div>
+    <div class="card">
+      <h3>Rapportages</h3>
+      <p>Verklaren problemen achteraf, zonder structureel inzicht.</p>
+    </div>
+    <div class="card">
+      <h3>Prolixia</h3>
+      <p>
+        Analyseert het proces zelf:
+        stap voor stap, over alle tickets.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- HOE WERKT HET -->
 <section>
   <h2>Hoe werkt het?</h2>
   <div class="grid">
@@ -145,28 +217,13 @@
       <p>Prolixia detecteert automatisch vertragingen per stap.</p>
     </div>
     <div class="card">
-      <h3>3. Ontvang rapport</h3>
-      <p>Een helder PDF-rapport voor team en management.</p>
+      <h3>3. Ontvang PDF-rapport</h3>
+      <p>Direct klaar voor teamlead of management.</p>
     </div>
   </div>
 </section>
 
-<section>
-  <h2>Pricing</h2>
-  <div class="grid">
-    <div class="card">
-      <h3>Basic</h3>
-      <p><strong>€19 / maand</strong></p>
-      <p class="muted">Voor kleine supportteams en eerste inzichten.</p>
-    </div>
-    <div class="card">
-      <h3>Pro</h3>
-      <p><strong>€49 / maand</strong></p>
-      <p class="muted">€-impact, historie en vergelijken (voor teamleads).</p>
-    </div>
-  </div>
-</section>
-
+<!-- FAQ -->
 <section>
   <h2>Veelgestelde vragen</h2>
   <div class="grid">
@@ -179,26 +236,29 @@
       <p>Nee. Prolixia werkt volledig in de browser.</p>
     </div>
     <div class="card">
-      <h3>Met welke tools werkt dit?</h3>
-      <p>Met iedere supporttool die tickets als CSV kan exporteren.</p>
-    </div>
-    <div class="card">
       <h3>Kan ik eerst proberen?</h3>
-      <p>Ja, gebruik de demo — geen account of betaling nodig.</p>
+      <p>Ja, de demo vereist geen account of betaling.</p>
     </div>
   </div>
 </section>
 
+<!-- CTA -->
 <section style="text-align:center;">
-  <h2>Krijg grip op je ticketdoorlooptijd</h2>
-  <p class="muted">Ontdek binnen 1 minuut waar je supportproces vastloopt.</p>
+  <h2>Waar verliest jouw supportteam SLA-tijd?</h2>
+  <p class="muted">
+    Ontvang binnen 1 minuut een PDF-rapport met structurele knelpunten.
+  </p>
+
   <form method="post" action="/demo" style="display:inline;">
-    <button class="btn btn-primary">▶️ Start demo voor supportteams</button>
+    <button class="btn btn-primary">
+      ▶️ Bekijk demo-rapport
+    </button>
   </form>
 </section>
 
 <footer>
-  © Prolixia • Support Process Intelligence • <a href="/">App</a>
+  © Prolixia • Support Process Intelligence •
+  <a href="/app">App</a>
 </footer>
 
 </body>
