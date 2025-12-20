@@ -16,10 +16,21 @@ from reportlab.platypus.flowables import Flowable
 
 
 # ===============================
+# PATHS & BRANDING
+# ===============================
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+ASSETS_DIR = BASE_DIR / "assets"
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+LOGO_PATH = ASSETS_DIR / "logo.png"
+PRIMARY_COLOR = colors.HexColor("#0f172a")
+SECONDARY_COLOR = colors.HexColor("#64748b")
+
+
+# ===============================
 # ARGS
 # ===============================
-# argv[1] = eur_per_hour
-# argv[2] = output_pdf_filename (optional)
 def _parse_float(x: str, default: float = 0.0) -> float:
     try:
         return float(x)
@@ -29,10 +40,6 @@ def _parse_float(x: str, default: float = 0.0) -> float:
 
 eur_per_hour = _parse_float(sys.argv[1], 0.0) if len(sys.argv) > 1 else 0.0
 output_pdf_name = sys.argv[2] if len(sys.argv) > 2 else "process_report.pdf"
-
-BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 CSV_PATH = UPLOAD_DIR / "events.csv"
 OUTPUT_PDF = UPLOAD_DIR / output_pdf_name
@@ -62,10 +69,7 @@ for canonical, options in COLUMN_ALIASES.items():
 
 missing = set(COLUMN_ALIASES.keys()) - set(normalized.keys())
 if missing:
-    raise ValueError(
-        f"Ontbrekende verplichte kolommen: {missing}. "
-        f"Gevonden kolommen: {list(df.columns)}"
-    )
+    raise ValueError(f"Ontbrekende kolommen: {missing}")
 
 df = df.rename(columns={v: k for k, v in normalized.items()})
 
@@ -82,7 +86,10 @@ df = df.sort_values(["case_id", "timestamp"])
 # DUUR PER STAP
 # ===============================
 df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
-df["duration_hours"] = (df["next_timestamp"] - df["timestamp"]).dt.total_seconds().div(3600)
+df["duration_hours"] = (
+    df["next_timestamp"] - df["timestamp"]
+).dt.total_seconds().div(3600)
+
 df = df.dropna(subset=["duration_hours"])
 df = df[df["duration_hours"] >= 0]
 
@@ -98,11 +105,7 @@ df["impact_hours"] = df["duration_hours"] - df["baseline_hours"]
 
 delays = df[df["is_delay"]].copy()
 
-# euro impact
-if eur_per_hour > 0:
-    delays["impact_eur"] = delays["impact_hours"] * eur_per_hour
-else:
-    delays["impact_eur"] = 0.0
+delays["impact_eur"] = delays["impact_hours"] * eur_per_hour if eur_per_hour > 0 else 0.0
 
 summary = (
     delays.groupby("event")
@@ -121,28 +124,26 @@ total_impact_eur = float(delays["impact_eur"].sum()) if not delays.empty else 0.
 
 
 # ===============================
-# SLA / KPI BEREKENINGEN (NIEUW)
+# SLA / KPI
 # ===============================
 total_tickets = int(df["case_id"].nunique())
-
 ticket_durations = df.groupby("case_id")["duration_hours"].sum()
-avg_wait_per_ticket = float(ticket_durations.mean()) if not ticket_durations.empty else 0.0
 
-SLA_HOURS = 24
-sla_breach_pct = float((ticket_durations > SLA_HOURS).mean() * 100) if not ticket_durations.empty else 0.0
+avg_wait_per_ticket = float(ticket_durations.mean()) if not ticket_durations.empty else 0.0
+sla_breach_pct = float((ticket_durations > 24).mean() * 100) if not ticket_durations.empty else 0.0
 
 avg_step_wait = df.groupby("event")["duration_hours"].mean().sort_values(ascending=False)
-top_sla_steps = avg_step_wait.head(5)  # top 5 voor grafiek
+top_steps = avg_step_wait.head(5)
 
-monthly_loss_estimate = (avg_wait_per_ticket * eur_per_hour * total_tickets) if eur_per_hour > 0 else 0.0
-potential_saving_estimate = monthly_loss_estimate * 0.2
+monthly_loss = avg_wait_per_ticket * eur_per_hour * total_tickets if eur_per_hour > 0 else 0.0
+potential_saving = monthly_loss * 0.2
 
 
 # ===============================
-# GRAFIEK (BALKEN) FLOWABLE
+# GRAFIEK FLOWABLE
 # ===============================
 class DrawingFlowable(Flowable):
-    def __init__(self, drawing: Drawing):
+    def __init__(self, drawing):
         super().__init__()
         self.drawing = drawing
         self.width = drawing.width
@@ -152,175 +153,115 @@ class DrawingFlowable(Flowable):
         from reportlab.graphics import renderPDF
         renderPDF.draw(self.drawing, self.canv, 0, 0)
 
-def make_bar_chart(data: list[tuple[str, float]], title: str, width: int = 440, height: int = 220) -> Drawing:
-    """
-    data: list of (label, value) - values are hours.
-    """
-    d = Drawing(width, height)
 
-    # Title
-    d.add(String(0, height - 14, title, fontName="Helvetica-Bold", fontSize=12, fillColor=colors.HexColor("#0f172a")))
+def make_bar_chart(data, title, width=440, height=220):
+    d = Drawing(width, height)
+    d.add(String(0, height - 14, title, fontName="Helvetica-Bold", fontSize=12, fillColor=PRIMARY_COLOR))
 
     if not data:
-        d.add(String(0, height - 40, "Geen data beschikbaar.", fontName="Helvetica", fontSize=10, fillColor=colors.black))
         return d
 
-    max_val = max(v for _, v in data) if data else 1
-    if max_val <= 0:
-        max_val = 1
-
-    left_label_w = 170
-    chart_w = width - left_label_w - 60
-    top = height - 40
-    row_h = (top - 10) / len(data)
-
-    # Background axis line
-    d.add(Rect(left_label_w, 8, chart_w, 1, fillColor=colors.lightgrey, strokeColor=colors.lightgrey))
+    max_val = max(v for _, v in data) or 1
+    left = 170
+    chart_w = width - left - 60
+    row_h = (height - 40) / len(data)
 
     for i, (label, val) in enumerate(data):
-        y = top - (i + 1) * row_h + 8
-        bar_h = row_h * 0.55
+        y = height - 40 - (i + 1) * row_h
         bar_w = (val / max_val) * chart_w
 
-        # Label
-        d.add(String(0, y + 2, str(label)[:28], fontName="Helvetica", fontSize=9, fillColor=colors.black))
-
-        # Bar
-        d.add(Rect(left_label_w, y, bar_w, bar_h, fillColor=colors.HexColor("#0f172a"), strokeColor=None))
-
-        # Value
-        d.add(String(left_label_w + chart_w + 6, y + 2, f"{val:.1f}u", fontName="Helvetica", fontSize=9, fillColor=colors.black))
+        d.add(String(0, y + 4, label[:30], fontSize=9))
+        d.add(Rect(left, y, bar_w, row_h * 0.6, fillColor=PRIMARY_COLOR, strokeColor=None))
+        d.add(String(left + chart_w + 6, y + 4, f"{val:.1f}u", fontSize=9))
 
     return d
+
+
+# ===============================
+# HEADER / FOOTER
+# ===============================
+def draw_header_footer(canvas, doc):
+    canvas.saveState()
+
+    if LOGO_PATH.exists():
+        canvas.drawImage(str(LOGO_PATH), 36, A4[1] - 50, width=120, mask="auto")
+
+    canvas.setStrokeColor(PRIMARY_COLOR)
+    canvas.setLineWidth(2)
+    canvas.line(36, A4[1] - 60, A4[0] - 36, A4[1] - 60)
+
+    canvas.setFont("Helvetica", 9)
+    canvas.setFillColor(SECONDARY_COLOR)
+    canvas.drawString(36, 28, f"Prolixia • {datetime.now().strftime('%d-%m-%Y')}")
+    canvas.drawRightString(A4[0] - 36, 28, f"Pagina {doc.page}")
+
+    canvas.restoreState()
 
 
 # ===============================
 # PDF GENERATIE
 # ===============================
 styles = getSampleStyleSheet()
-doc = SimpleDocTemplate(
-    str(OUTPUT_PDF),
-    pagesize=A4,
-    rightMargin=36,
-    leftMargin=36,
-    topMargin=36,
-    bottomMargin=36,
-)
+doc = SimpleDocTemplate(str(OUTPUT_PDF), pagesize=A4, rightMargin=36, leftMargin=36, topMargin=80, bottomMargin=50)
 
 elements = []
-elements.append(Paragraph("<b>Prolixia – Support SLA Analyse Rapport</b>", styles["Title"]))
-elements.append(Spacer(1, 10))
+elements.append(Paragraph("<b>Support SLA Analyse Rapport</b>", styles["Title"]))
+elements.append(Spacer(1, 12))
 
-elements.append(Paragraph(
-    "Dit rapport toont structurele procesvertragingen en SLA-impact op basis van event-log analyse.",
-    styles["Normal"],
-))
+elements.append(Paragraph(f"<b>Aantal tickets:</b> {total_tickets}", styles["Normal"]))
+elements.append(Paragraph(f"<b>Gem. wachttijd per ticket:</b> {avg_wait_per_ticket:.2f} uur", styles["Normal"]))
+elements.append(Paragraph(f"<b>Tickets boven SLA (24u):</b> {sla_breach_pct:.1f}%", styles["Normal"]))
 elements.append(Spacer(1, 12))
 
 if eur_per_hour > 0:
-    elements.append(Paragraph(f"<b>Kostprijs per uur:</b> €{eur_per_hour:.2f}", styles["Normal"]))
-    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(f"<b>Geschatte maandkosten:</b> €{monthly_loss:,.0f}", styles["Normal"]))
+    elements.append(Paragraph(f"<b>Potentiële besparing (20%):</b> €{potential_saving:,.0f}", styles["Normal"]))
+    elements.append(Spacer(1, 16))
 
-# ===============================
-# SLA / KPI OVERZICHT
-# ===============================
-elements.append(Paragraph("<b>SLA & KPI Overzicht</b>", styles["Heading2"]))
+elements.append(Paragraph("<b>Top SLA-veroorzakers</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
-elements.append(Paragraph(f"<b>Aantal tickets:</b> {total_tickets}", styles["Normal"]))
-elements.append(Spacer(1, 4))
-
-elements.append(Paragraph(f"<b>Gemiddelde wachttijd per ticket:</b> {avg_wait_per_ticket:.2f} uur", styles["Normal"]))
-elements.append(Spacer(1, 4))
-
-elements.append(Paragraph(f"<b>Tickets boven SLA (24 uur):</b> {sla_breach_pct:.1f}%", styles["Normal"]))
-elements.append(Spacer(1, 8))
-
-elements.append(Paragraph(
-    f"<b>Totale impact (delays vs baseline):</b> {total_impact_hours:.2f} uur"
-    + (f" (≈ €{total_impact_eur:,.2f})" if eur_per_hour > 0 else ""),
-    styles["Normal"],
-))
-elements.append(Spacer(1, 8))
-
-if eur_per_hour > 0:
-    elements.append(Paragraph(f"<b>Geschatte maandelijkse kosten (wachttijd):</b> €{monthly_loss_estimate:,.0f}", styles["Normal"]))
-    elements.append(Spacer(1, 4))
-    elements.append(Paragraph(f"<b>Potentiële besparing (20%):</b> €{potential_saving_estimate:,.0f}", styles["Normal"]))
-    elements.append(Spacer(1, 12))
-
-# ===============================
-# GRAFIEK: TOP SLA-VEROORZAKERS
-# ===============================
-elements.append(Paragraph("<b>Top SLA-veroorzakers (gemiddelde wachttijd per stap)</b>", styles["Heading2"]))
-elements.append(Spacer(1, 8))
-
-chart_data = [(str(k), float(v)) for k, v in top_sla_steps.items()]
-chart = make_bar_chart(chart_data, "Gemiddelde wachttijd per stap (uren)")
+chart = make_bar_chart(list(top_steps.items()), "Gemiddelde wachttijd per stap (uren)")
 elements.append(DrawingFlowable(chart))
-elements.append(Spacer(1, 14))
+elements.append(Spacer(1, 16))
 
-elements.append(Paragraph(
-    "Hoe langer de balk, hoe meer structurele wachttijd in deze stap.",
-    styles["Normal"],
-))
-elements.append(Spacer(1, 18))
-
-# ===============================
-# TOP PROCESKNELPUNTEN (jouw bestaande tabel)
-# ===============================
 elements.append(Paragraph("<b>Top procesknelpunten</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
-if summary.empty:
-    elements.append(Paragraph("Geen significante procesvertragingen gedetecteerd.", styles["Normal"]))
-else:
-    if eur_per_hour > 0:
-        table_data = [["Processtap", "Aantal", "Impact (uren)", "Impact (€)"]]
-        for _, row in summary.iterrows():
-            table_data.append([
-                str(row["event"]),
-                int(row["occurrences"]),
-                f"{row['total_impact_hours']:.2f}",
-                f"€{row['total_impact_eur']:.2f}",
-            ])
-    else:
-        table_data = [["Processtap", "Aantal", "Impact (uren)"]]
-        for _, row in summary.iterrows():
-            table_data.append([
-                str(row["event"]),
-                int(row["occurrences"]),
-                f"{row['total_impact_hours']:.2f}",
-            ])
+if not summary.empty:
+    table_data = [["Stap", "Aantal", "Impact (uur)", "Impact (€)"]]
+    for _, r in summary.iterrows():
+        table_data.append([
+            r["event"],
+            int(r["occurrences"]),
+            f"{r['total_impact_hours']:.2f}",
+            f"€{r['total_impact_eur']:.0f}",
+        ])
 
-    table = Table(table_data, hAlign="LEFT")
+    table = Table(table_data)
     table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("FONT", (0,0), (-1,0), "Helvetica-Bold"),
+        ("ALIGN", (1,1), (-1,-1), "RIGHT"),
     ]))
     elements.append(table)
 
-doc.build(elements)
+doc.build(
+    elements,
+    onFirstPage=draw_header_footer,
+    onLaterPages=draw_header_footer,
+)
 
 # ===============================
-# METRICS OPSLAAN VOOR APP (history)
+# METRICS
 # ===============================
-metrics = {
-    "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-    "eur_per_hour": eur_per_hour,
+METRICS_PATH.write_text(json.dumps({
+    "created_at": datetime.now(timezone.utc).isoformat(),
     "total_tickets": total_tickets,
     "avg_wait_per_ticket": avg_wait_per_ticket,
     "sla_breach_pct": sla_breach_pct,
-    "total_impact_hours": total_impact_hours,
-    "total_impact_eur": total_impact_eur,
-    "monthly_loss_estimate": monthly_loss_estimate,
-    "potential_saving_estimate": potential_saving_estimate,
-    "pdf": OUTPUT_PDF.name,
-}
-METRICS_PATH.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-
-print(f"PDF gegenereerd: {OUTPUT_PDF}")
-print(f"Metrics: {METRICS_PATH}")
+    "monthly_loss": monthly_loss,
+    "potential_saving": potential_saving,
+    "pdf": OUTPUT_PDF.name
+}, indent=2))
