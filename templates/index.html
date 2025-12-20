@@ -3,52 +3,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Prolixia – App</title>
+  <title>Prolixia – Support Process Analyzer</title>
+
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
-    .card { max-width: 920px; padding: 24px; border: 1px solid #e5e7eb; border-radius: 14px; }
-    .row { display:flex; gap:10px; flex-wrap: wrap; align-items:center; }
-    .btn { padding: 10px 14px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; }
-    .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
-    .muted { color:#64748b; }
-    a { color:#0f172a; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 40px;
+      color: #0f172a;
+      background: #ffffff;
+    }
+    h1, h2, h3 { margin-top: 0; }
+    .card {
+      max-width: 960px;
+      padding: 28px;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      background: #ffffff;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn {
+      padding: 12px 18px;
+      border-radius: 10px;
+      border: 0;
+      cursor: pointer;
+      font-weight: 800;
+      background: #0f172a;
+      color: #ffffff;
+    }
+    .btn.secondary {
+      background: #ffffff;
+      color: #0f172a;
+      border: 2px solid #0f172a;
+    }
+    .muted {
+      color: #64748b;
+      font-size: 15px;
+    }
+    hr {
+      margin: 28px 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    input[type="file"], input[type="number"] {
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #cbd5f5;
+    }
+    a { color: #0f172a; text-decoration: none; }
   </style>
 </head>
+
 <body>
+
   <div class="card">
+
+    <!-- HEADER -->
     <div class="row" style="justify-content:space-between;">
-      <h1 style="margin:0;">Prolixia</h1>
-      <a href="/landing">Landing</a>
+      <h1>Prolixia</h1>
+      <a href="/landing">Landing page</a>
     </div>
 
-    <p class="muted">Support/ITSM analyse: ontdek waar tickets blijven hangen.</p>
+    <p class="muted">
+      Support & ITSM analyse – ontdek waarom tickets blijven liggen.
+    </p>
 
+    <!-- NIET ACTIEF (GEEN ABONNEMENT) -->
     {% if not active %}
+
       <h3>Probeer de demo</h3>
+
       {% if not demo_used %}
         <form method="post" action="/demo">
           <button class="btn">▶️ Analyseer demo-data</button>
         </form>
       {% else %}
-        <p class="muted">✅ Demo al gebruikt (open incognito of verwijder cookie om opnieuw te testen)</p>
+        <p class="muted">✅ Demo al gebruikt</p>
       {% endif %}
 
       <hr>
+
+      <h3>Start abonnement</h3>
       <p class="muted">
-        Wil je je eigen ticketdata analyseren? Activeer een abonnement (Stripe) en upload je CSV.
+        Analyseer je eigen supporttickets en ontvang automatisch PDF-rapporten.
       </p>
 
+      <div class="row">
+        <!-- Deze routes koppelen we in de volgende stap aan Stripe -->
+        <form method="post" action="/subscribe/basic">
+          <button class="btn secondary">
+            Basic – €19 / maand
+          </button>
+        </form>
+
+        <form method="post" action="/subscribe/pro">
+          <button class="btn">
+            Pro – €49 / maand
+          </button>
+        </form>
+      </div>
+
+      <p class="muted" style="margin-top:14px;">
+        Opzegbaar per maand • Geen installatie • CSV-export uit je supporttool
+      </p>
+
+    <!-- ACTIEF (ABONNEMENT AAN) -->
     {% else %}
-      <p>Welkom terug <b>{{ email }}</b> ({{ plan|upper }})</p>
+
+      <p>
+        Welkom <strong>{{ email }}</strong>  
+        <span class="muted">({{ plan|upper }})</span>
+      </p>
+
+      <h3>Upload je support-CSV</h3>
 
       <form id="uploadForm" class="row">
         <input type="file" name="file" accept=".csv,text/csv" required />
         <input type="number" name="rate" min="1" step="1" value="60" />
-        <button class="btn" type="submit">Analyseer & genereer PDF</button>
+        <button class="btn" type="submit">
+          Analyseer & genereer PDF
+        </button>
       </form>
 
       <p id="msg" class="muted"></p>
+
     {% endif %}
+
   </div>
 
   {% if active %}
@@ -58,6 +142,7 @@
       const fd = new FormData(e.target);
       const res = await fetch("/upload", { method: "POST", body: fd });
       const data = await res.json();
+
       if (data.filename) {
         window.location = "/download/" + encodeURIComponent(data.filename);
       } else {
@@ -66,5 +151,6 @@
     });
   </script>
   {% endif %}
+
 </body>
 </html>
