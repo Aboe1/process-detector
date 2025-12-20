@@ -95,16 +95,15 @@
       <div class="row">
         <!-- Deze routes koppelen we in de volgende stap aan Stripe -->
         <form method="post" action="/subscribe/basic">
-          <button class="btn secondary">
-            Basic – €19 / maand
-          </button>
-        </form>
+  <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+  <button class="btn secondary">Basic – €19 / maand</button>
+</form>
 
-        <form method="post" action="/subscribe/pro">
-          <button class="btn">
-            Pro – €49 / maand
-          </button>
-        </form>
+<form method="post" action="/subscribe/pro">
+  <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+  <button class="btn">Pro – €49 / maand</button>
+</form>
+
       </div>
 
       <p class="muted" style="margin-top:14px;">
