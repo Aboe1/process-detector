@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prolixia – Ontdek waar je proces vastloopt</title>
+  <title>Prolixia – Waarom blijven supporttickets liggen?</title>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -33,8 +33,10 @@
       padding: 14px 26px;
       border-radius: 10px;
       text-decoration: none;
-      font-weight: 700;
+      font-weight: 800;
       margin: 6px;
+      cursor: pointer;
+      border: 0;
     }
     .btn-primary {
       background: #0f172a;
@@ -72,60 +74,61 @@
       text-align: center;
       color: #64748b;
     }
+    a { color: #0f172a; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Ontdek waar je proces tijd en geld verliest</h1>
+  <h1>Ontdek waarom supporttickets blijven liggen</h1>
   <p>
-    Prolixia analyseert je event-log data en laat automatisch zien
-    welke processtappen structureel vertragen — inclusief impact in uren en euro’s.
+    Prolixia analyseert je support data en laat automatisch zien welke ticketstappen
+    structureel vertragen — inclusief impact in uren en euro’s.
   </p>
 
   <form method="post" action="/demo" style="display:inline;">
-    <button class="btn btn-primary">▶️ Probeer de demo</button>
+    <button class="btn btn-primary">▶️ Probeer de demo (geen account nodig)</button>
   </form>
 
   <a href="/" class="btn btn-secondary">Ga naar de app</a>
+
+  <p class="muted" style="margin-top:16px;">
+    Werkt met CSV-exporten uit o.a. Zendesk, Freshdesk, Jira Service Management
+  </p>
 </header>
 
 <section>
-  <h2>Voor wie is Prolixia?</h2>
-  <p class="muted">
-    Voor teams die werken met cases, tickets of orders en grip willen op doorlooptijd.
-  </p>
-
+  <h2>Herken je dit?</h2>
   <div class="grid">
     <div class="card">
-      <h3>Support & ITSM</h3>
-      <p>Zie waarom tickets blijven hangen tussen stappen.</p>
+      <h3>Tickets blijven hangen</h3>
+      <p>Je ziet dat tickets lang openstaan, maar niet waar het misgaat.</p>
     </div>
     <div class="card">
-      <h3>Operations & Backoffice</h3>
-      <p>Ontdek structurele wachttijden in je workflow.</p>
+      <h3>SLA’s onder druk</h3>
+      <p>Gemiddelden verbergen de echte knelpunten — zeker bij escalaties.</p>
     </div>
     <div class="card">
-      <h3>Orderverwerking</h3>
-      <p>Analyseer vertragingen tussen order, review en levering.</p>
+      <h3>Geen inzicht per stap</h3>
+      <p>Je weet niet of het probleem zit bij triage, overdracht of afhandeling.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>Wat krijg je concreet?</h2>
+  <h2>Wat Prolixia doet voor supportteams</h2>
   <div class="grid">
     <div class="card">
-      <h3>Top procesknelpunten</h3>
-      <p>Gesorteerd op grootste impact.</p>
+      <h3>Analyse per ticketstap</h3>
+      <p>Zie exact waar tickets vertraging oplopen in je workflow.</p>
     </div>
     <div class="card">
-      <h3>Impact in uren & €</h3>
-      <p>Geen dashboards, maar direct begrijpelijke cijfers.</p>
+      <h3>Structurele knelpunten</h3>
+      <p>Geen incidenten, maar patronen die steeds terugkomen.</p>
     </div>
     <div class="card">
-      <h3>Professioneel PDF-rapport</h3>
-      <p>Klaar om te delen met management of klanten.</p>
+      <h3>Impact in tijd & kosten</h3>
+      <p>Onderbouw verbeteringen met urenverlies en €-impact.</p>
     </div>
   </div>
 </section>
@@ -134,16 +137,16 @@
   <h2>Hoe werkt het?</h2>
   <div class="grid">
     <div class="card">
-      <h3>1. Upload CSV</h3>
-      <p>Gebruik je bestaande event-log data.</p>
+      <h3>1. Exporteer tickets</h3>
+      <p>Download een CSV uit je supporttool.</p>
     </div>
     <div class="card">
-      <h3>2. Automatische analyse</h3>
-      <p>Prolixia detecteert afwijkingen en vertragingen.</p>
+      <h3>2. Upload & analyse</h3>
+      <p>Prolixia detecteert automatisch vertragingen per stap.</p>
     </div>
     <div class="card">
-      <h3>3. Ontvang je rapport</h3>
-      <p>Direct inzicht, zonder consultants.</p>
+      <h3>3. Ontvang rapport</h3>
+      <p>Een helder PDF-rapport voor team en management.</p>
     </div>
   </div>
 </section>
@@ -154,27 +157,48 @@
     <div class="card">
       <h3>Basic</h3>
       <p><strong>€19 / maand</strong></p>
-      <p class="muted">Voor kleine teams en eerste inzichten.</p>
+      <p class="muted">Voor kleine supportteams en eerste inzichten.</p>
     </div>
     <div class="card">
       <h3>Pro</h3>
       <p><strong>€49 / maand</strong></p>
-      <p class="muted">€-impact, historie en vergelijken.</p>
+      <p class="muted">€-impact, historie en vergelijken (voor teamleads).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Veelgestelde vragen</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Is mijn data veilig?</h3>
+      <p>Ja. Je upload wordt alleen gebruikt voor analyse en niet gedeeld.</p>
+    </div>
+    <div class="card">
+      <h3>Moet ik iets installeren?</h3>
+      <p>Nee. Prolixia werkt volledig in de browser.</p>
+    </div>
+    <div class="card">
+      <h3>Met welke tools werkt dit?</h3>
+      <p>Met iedere supporttool die tickets als CSV kan exporteren.</p>
+    </div>
+    <div class="card">
+      <h3>Kan ik eerst proberen?</h3>
+      <p>Ja, gebruik de demo — geen account of betaling nodig.</p>
     </div>
   </div>
 </section>
 
 <section style="text-align:center;">
-  <h2>Klaar om inzicht te krijgen?</h2>
-  <p class="muted">Probeer de demo of start direct met je eigen data.</p>
-
+  <h2>Krijg grip op je ticketdoorlooptijd</h2>
+  <p class="muted">Ontdek binnen 1 minuut waar je supportproces vastloopt.</p>
   <form method="post" action="/demo" style="display:inline;">
-    <button class="btn btn-primary">▶️ Start demo</button>
+    <button class="btn btn-primary">▶️ Start demo voor supportteams</button>
   </form>
 </section>
 
 <footer>
-  © Prolixia • Process Intelligence
+  © Prolixia • Support Process Intelligence • <a href="/">App</a>
 </footer>
 
 </body>

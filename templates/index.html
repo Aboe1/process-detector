@@ -1,41 +1,70 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
-  <title>Process Detector</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Prolixia – App</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
+    .card { max-width: 920px; padding: 24px; border: 1px solid #e5e7eb; border-radius: 14px; }
+    .row { display:flex; gap:10px; flex-wrap: wrap; align-items:center; }
+    .btn { padding: 10px 14px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; }
+    .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
+    .muted { color:#64748b; }
+    a { color:#0f172a; }
+  </style>
 </head>
 <body>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h1 style="margin:0;">Prolixia</h1>
+      <a href="/landing">Landing</a>
+    </div>
 
-<h1>Process Detector</h1>
-{% if demo_used %}
-  <p style="color:#16a34a;">
-    ✅ Je hebt de demo gebruikt. Start een abonnement om je eigen data te analyseren.
-  </p>
-{% endif %}
+    <p class="muted">Support/ITSM analyse: ontdek waar tickets blijven hangen.</p>
 
-{% if not active %}
-  <h3>Probeer de demo</h3>
+    {% if not active %}
+      <h3>Probeer de demo</h3>
+      {% if not demo_used %}
+        <form method="post" action="/demo">
+          <button class="btn">▶️ Analyseer demo-data</button>
+        </form>
+      {% else %}
+        <p class="muted">✅ Demo al gebruikt (open incognito of verwijder cookie om opnieuw te testen)</p>
+      {% endif %}
 
-  {% if not demo_used %}
-    <form method="post" action="/demo">
-      <button>▶️ Analyseer demo-data</button>
-    </form>
-  {% else %}
-    <p>✅ Demo al gebruikt</p>
+      <hr>
+      <p class="muted">
+        Wil je je eigen ticketdata analyseren? Activeer een abonnement (Stripe) en upload je CSV.
+      </p>
+
+    {% else %}
+      <p>Welkom terug <b>{{ email }}</b> ({{ plan|upper }})</p>
+
+      <form id="uploadForm" class="row">
+        <input type="file" name="file" accept=".csv,text/csv" required />
+        <input type="number" name="rate" min="1" step="1" value="60" />
+        <button class="btn" type="submit">Analyseer & genereer PDF</button>
+      </form>
+
+      <p id="msg" class="muted"></p>
+    {% endif %}
+  </div>
+
+  {% if active %}
+  <script>
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const res = await fetch("/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.filename) {
+        window.location = "/download/" + encodeURIComponent(data.filename);
+      } else {
+        document.getElementById("msg").textContent = "Upload mislukt.";
+      }
+    });
+  </script>
   {% endif %}
-
-  <hr>
-
-  <h3>Start abonnement</h3>
-  <form method="post" action="/billing/checkout">
-    <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
-    <button name="plan" value="basic">Basic</button>
-    <button name="plan" value="pro">Pro</button>
-  </form>
-
-{% else %}
-  <p>Welkom terug {{ email }}</p>
-{% endif %}
-
 </body>
 </html>
