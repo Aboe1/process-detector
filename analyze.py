@@ -33,7 +33,7 @@ CSV_PATH = UPLOAD_DIR / "events.csv"
 OUTPUT_PDF = UPLOAD_DIR / output_pdf_name
 METRICS_PATH = UPLOAD_DIR / "last_metrics.json"
 
-LOGO_PATH = ASSETS_DIR / "logo.png"   # mag ontbreken!
+LOGO_PATH = ASSETS_DIR / "logo.png"  # mag ontbreken
 
 
 # ===============================
@@ -45,9 +45,9 @@ if not CSV_PATH.exists():
 df = pd.read_csv(CSV_PATH)
 
 COLUMN_ALIASES = {
-    "case_id": ["case_id", "case", "ticket_id", "order_id"],
-    "timestamp": ["timestamp", "time", "datetime"],
-    "event": ["event", "activity", "step", "status"],
+    "case_id": ["case_id", "case", "caseid", "ticket_id", "order_id"],
+    "timestamp": ["timestamp", "time", "datetime", "date"],
+    "event": ["event", "activity", "step", "status", "action", "event_name"],
 }
 
 normalized = {}
@@ -57,9 +57,11 @@ for canonical, options in COLUMN_ALIASES.items():
             normalized[canonical] = col
             break
 
-missing = set(COLUMN_ALIASES) - set(normalized)
+missing = set(COLUMN_ALIASES.keys()) - set(normalized.keys())
 if missing:
-    raise ValueError(f"Ontbrekende kolommen: {missing}")
+    raise ValueError(
+        f"Ontbrekende kolommen: {missing}. Gevonden: {list(df.columns)}"
+    )
 
 df = df.rename(columns={v: k for k, v in normalized.items()})
 
@@ -73,23 +75,34 @@ df = df.sort_values(["case_id", "timestamp"])
 
 
 # ===============================
-# DUUR
+# PERIODE (voor maand/jaar extrapolatie)
+# ===============================
+period_start = df["timestamp"].min()
+period_end = df["timestamp"].max()
+period_hours = (period_end - period_start).total_seconds() / 3600 if pd.notna(period_start) and pd.notna(period_end) else 0.0
+
+# Guard: als periode te klein/ongeldig is, geen extrapolatie
+MIN_PERIOD_HOURS = 1.0
+can_extrapolate = period_hours >= MIN_PERIOD_HOURS
+
+
+# ===============================
+# DUUR PER STAP
 # ===============================
 df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
-df["duration_hours"] = (
-    df["next_timestamp"] - df["timestamp"]
-).dt.total_seconds() / 3600
+df["duration_hours"] = (df["next_timestamp"] - df["timestamp"]).dt.total_seconds() / 3600
 
 df = df.dropna(subset=["duration_hours"])
 df = df[df["duration_hours"] >= 0]
 
 
 # ===============================
-# SLA / DELAYS
+# BASELINE + IMPACT
 # ===============================
 baseline = df.groupby("event")["duration_hours"].median()
 df["baseline"] = df["event"].map(baseline)
 
+# impact = duur - baseline (alleen positieve impact telt)
 df["impact_hours"] = df["duration_hours"] - df["baseline"]
 delays = df[df["impact_hours"] > 0].copy()
 
@@ -114,6 +127,32 @@ total_eur = float(summary["total_eur"].sum()) if not summary.empty else 0.0
 
 
 # ===============================
+# ROI / MANAGEMENT METRICS (NIEUW)
+# ===============================
+MONTH_HOURS = 30 * 24  # ~30 dagen
+FTE_HOURS_PER_MONTH = 160.0
+
+if can_extrapolate:
+    monthly_factor = MONTH_HOURS / period_hours
+    monthly_hours = total_hours * monthly_factor
+    monthly_eur = total_eur * monthly_factor
+else:
+    monthly_factor = 0.0
+    monthly_hours = 0.0
+    monthly_eur = 0.0
+
+yearly_hours = monthly_hours * 12 if can_extrapolate else 0.0
+yearly_eur = monthly_eur * 12 if can_extrapolate else 0.0
+
+fte_equivalent = (monthly_hours / FTE_HOURS_PER_MONTH) if can_extrapolate else 0.0
+
+# (Optioneel) “realistische verbetering” 20%
+improve_pct = 0.20
+potential_saving_hours = monthly_hours * improve_pct if can_extrapolate else 0.0
+potential_saving_eur = monthly_eur * improve_pct if can_extrapolate else 0.0
+
+
+# ===============================
 # PDF
 # ===============================
 styles = getSampleStyleSheet()
@@ -132,11 +171,18 @@ elements.append(Paragraph("<b>Prolixia – Support SLA Analyse</b>", styles["Tit
 elements.append(Spacer(1, 12))
 
 elements.append(Paragraph(
-    "Dit rapport toont structurele wachttijden en SLA-overtredingen "
-    "op basis van support event-logs.",
+    "Dit rapport toont structurele wachttijden en SLA-overtredingen op basis van support event-logs.",
     styles["Normal"]
 ))
 elements.append(Spacer(1, 12))
+
+# Periode info
+if pd.notna(period_start) and pd.notna(period_end):
+    elements.append(Paragraph(
+        f"<b>Analyseperiode:</b> {period_start.strftime('%d-%m-%Y %H:%M')} t/m {period_end.strftime('%d-%m-%Y %H:%M')}",
+        styles["Normal"]
+    ))
+    elements.append(Spacer(1, 6))
 
 elements.append(Paragraph(
     f"<b>Totale impact:</b> {total_hours:.2f} uur"
@@ -145,6 +191,49 @@ elements.append(Paragraph(
 ))
 elements.append(Spacer(1, 16))
 
+# ===============================
+# MANAGEMENTSAMENVATTING (NIEUW)
+# ===============================
+elements.append(Paragraph("<b>Managementsamenvatting</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
+
+if can_extrapolate:
+    elements.append(Paragraph(
+        f"• Geschatte maandimpact: <b>{monthly_hours:,.1f} uur</b>"
+        + (f" (≈ <b>€{monthly_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
+        styles["Normal"]
+    ))
+    elements.append(Spacer(1, 4))
+
+    elements.append(Paragraph(
+        f"• FTE-equivalent: <b>{fte_equivalent:.2f} FTE</b> (op basis van 160 uur/maand)",
+        styles["Normal"]
+    ))
+    elements.append(Spacer(1, 4))
+
+    elements.append(Paragraph(
+        f"• Jaarimpact (12 maanden): <b>{yearly_hours:,.0f} uur</b>"
+        + (f" (≈ <b>€{yearly_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
+        styles["Normal"]
+    ))
+    elements.append(Spacer(1, 8))
+
+    elements.append(Paragraph(
+        f"• Potentiële besparing bij 20% verbetering: <b>{potential_saving_hours:,.1f} uur/maand</b>"
+        + (f" (≈ <b>€{potential_saving_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
+        styles["Normal"]
+    ))
+else:
+    elements.append(Paragraph(
+        "• Extrapolatie naar maand/jaar is niet mogelijk omdat de analyseperiode te klein of onduidelijk is.",
+        styles["Normal"]
+    ))
+
+elements.append(Spacer(1, 18))
+
+# ===============================
+# TOP KNELPUNTEN TABEL
+# ===============================
 elements.append(Paragraph("<b>Top knelpunten</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
@@ -154,9 +243,9 @@ else:
     table_data = [["Stap", "Aantal", "Impact (uur)"]]
     for _, r in summary.iterrows():
         table_data.append([
-            r["event"],
+            str(r["event"]),
             int(r["count"]),
-            f"{r['total_hours']:.2f}"
+            f"{float(r['total_hours']):.2f}",
         ])
 
     table = Table(table_data, hAlign="LEFT")
@@ -168,10 +257,10 @@ else:
     elements.append(table)
 
 
-def header_footer(canvas, doc):
+def header_footer(canvas, doc_):
     canvas.saveState()
 
-    # Logo (optioneel, faalt NOOIT)
+    # Logo (optioneel, mag nooit crashen)
     if LOGO_PATH.exists():
         try:
             canvas.drawImage(
@@ -187,6 +276,7 @@ def header_footer(canvas, doc):
 
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(colors.grey)
+
     canvas.drawString(
         36,
         28,
@@ -195,7 +285,7 @@ def header_footer(canvas, doc):
     canvas.drawRightString(
         A4[0] - 36,
         28,
-        f"Pagina {doc.page}"
+        f"Pagina {doc_.page}"
     )
 
     canvas.restoreState()
@@ -213,14 +303,26 @@ doc.build(
 # ===============================
 metrics = {
     "generated": datetime.now(timezone.utc).isoformat(),
+    "eur_per_hour": eur_per_hour,
+    "period_start": period_start.isoformat() if pd.notna(period_start) else None,
+    "period_end": period_end.isoformat() if pd.notna(period_end) else None,
+    "period_hours": period_hours,
     "total_hours": total_hours,
     "total_eur": total_eur,
+    "monthly_hours_est": monthly_hours,
+    "monthly_eur_est": monthly_eur,
+    "yearly_hours_est": yearly_hours,
+    "yearly_eur_est": yearly_eur,
+    "fte_equivalent": fte_equivalent,
+    "potential_saving_hours": potential_saving_hours,
+    "potential_saving_eur": potential_saving_eur,
     "pdf": OUTPUT_PDF.name,
 }
 
 METRICS_PATH.write_text(
-    json.dumps(metrics, indent=2),
+    json.dumps(metrics, ensure_ascii=False, indent=2),
     encoding="utf-8"
 )
 
 print("PDF gegenereerd:", OUTPUT_PDF)
+print("Metrics opgeslagen:", METRICS_PATH)
