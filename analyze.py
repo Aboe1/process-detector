@@ -5,17 +5,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    PageBreak,
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 )
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.graphics.shapes import Drawing, Rect, String
+
+import matplotlib.pyplot as plt
 
 
 # ===============================
@@ -38,43 +34,52 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 CSV_PATH = UPLOAD_DIR / "events.csv"
 OUTPUT_PDF = UPLOAD_DIR / output_pdf_name
 METRICS_PATH = UPLOAD_DIR / "last_metrics.json"
+CHART_PATH = UPLOAD_DIR / "impact_chart.png"
 
 if not CSV_PATH.exists():
     raise FileNotFoundError("events.csv niet gevonden in /uploads")
 
 
 # ===============================
-# CSV INLEZEN
+# CSV INLEZEN + NORMALISATIE
 # ===============================
 df = pd.read_csv(CSV_PATH)
 
 COLUMN_ALIASES = {
     "case_id": ["case_id", "case", "caseid", "ticket_id"],
-    "timestamp": ["timestamp", "time", "datetime"],
+    "timestamp": ["timestamp", "time", "datetime", "date"],
     "event": ["event", "activity", "step", "status"],
 }
 
 normalized = {}
-for canon, options in COLUMN_ALIASES.items():
+for canonical, options in COLUMN_ALIASES.items():
     for col in options:
         if col in df.columns:
-            normalized[canon] = col
+            normalized[canonical] = col
             break
+
+missing = set(COLUMN_ALIASES.keys()) - set(normalized.keys())
+if missing:
+    raise ValueError(f"Ontbrekende kolommen: {missing}")
 
 df = df.rename(columns={v: k for k, v in normalized.items()})
 
+
+# ===============================
+# CLEANUP
+# ===============================
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 df = df.dropna(subset=["timestamp", "case_id", "event"])
 df = df.sort_values(["case_id", "timestamp"])
 
 
 # ===============================
-# DUUR + IMPACT
+# DUUR + DELAYS
 # ===============================
 df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
 df["duration_hours"] = (
     df["next_timestamp"] - df["timestamp"]
-).dt.total_seconds().div(3600)
+).dt.total_seconds() / 3600
 
 df = df.dropna(subset=["duration_hours"])
 df = df[df["duration_hours"] >= 0]
@@ -82,91 +87,111 @@ df = df[df["duration_hours"] >= 0]
 baseline = df.groupby("event")["duration_hours"].median()
 df["baseline"] = df["event"].map(baseline)
 
-df["impact_hours"] = (df["duration_hours"] - df["baseline"]).clip(lower=0)
+df["impact_hours"] = df["duration_hours"] - df["baseline"]
+delays = df[df["impact_hours"] > 0].copy()
+
+delays["impact_eur"] = delays["impact_hours"] * eur_per_hour
 
 summary = (
-    df[df["impact_hours"] > 0]
-    .groupby("event")
+    delays.groupby("event")
     .agg(
-        count=("impact_hours", "count"),
-        impact=("impact_hours", "sum"),
+        occurrences=("impact_hours", "count"),
+        total_impact_hours=("impact_hours", "sum"),
+        total_impact_eur=("impact_eur", "sum"),
     )
-    .sort_values("impact", ascending=False)
+    .sort_values("total_impact_hours", ascending=False)
     .reset_index()
 )
 
-total_impact_hours = summary["impact"].sum()
-total_impact_eur = total_impact_hours * eur_per_hour
+total_hours = summary["total_impact_hours"].sum()
+total_eur = summary["total_impact_eur"].sum()
 
 
 # ===============================
-# ADVIESLOGICA
+# ROI SCENARIO'S
 # ===============================
-ADVICE_MAP = {
-    "assigned": "Automatiseer toewijzing en stel SLA op eerste reactie in.",
-    "waiting": "Gebruik klant-reminders en pauzeer SLA bij wachten op klant.",
-    "response": "Balanceer workload en introduceer WIP-limieten.",
-    "triage": "Versnel triage met vaste categorieën.",
-    "created": "Automatiseer ticketcreatie via formulieren of integraties.",
+roi_rows = []
+for pct in (0.1, 0.2, 0.3):
+    roi_rows.append({
+        "label": f"{int(pct*100)}% verbetering",
+        "hours": total_hours * pct,
+        "eur": total_eur * pct,
+    })
+
+
+# ===============================
+# AANBEVOLEN ACTIES
+# ===============================
+ACTIONS = {
+    "Assigned to agent": "Automatiseer toewijzing en stel SLA op eerste reactie in.",
+    "Waiting for customer": "Gebruik klant-reminders en pauzeer SLA bij wachten op klant.",
+    "Agent response": "Balanceer workload en introduceer WIP-limieten.",
 }
 
-def advice_for(step):
-    s = step.lower()
-    for k, v in ADVICE_MAP.items():
-        if k in s:
-            return v
-    return "Analyseer deze stap op standaardisatie en automatisering."
+recommendations = []
+for _, row in summary.iterrows():
+    if row["event"] in ACTIONS:
+        recommendations.append(
+            f"<b>{row['event']}:</b> {ACTIONS[row['event']]}"
+        )
 
 
 # ===============================
-# PDF START
+# VISUALISATIE
+# ===============================
+if not summary.empty:
+    plt.figure(figsize=(6, 3))
+    plt.barh(summary["event"], summary["total_impact_hours"])
+    plt.xlabel("Impact (uur)")
+    plt.tight_layout()
+    plt.savefig(CHART_PATH)
+    plt.close()
+
+
+# ===============================
+# PDF
 # ===============================
 styles = getSampleStyleSheet()
-doc = SimpleDocTemplate(
-    str(OUTPUT_PDF),
-    pagesize=A4,
-    rightMargin=36,
-    leftMargin=36,
-    topMargin=36,
-    bottomMargin=36,
-)
-
+doc = SimpleDocTemplate(str(OUTPUT_PDF), pagesize=A4)
 elements = []
 
 elements.append(Paragraph("<b>Prolixia – Support SLA Analyse</b>", styles["Title"]))
 elements.append(Spacer(1, 12))
 
 elements.append(Paragraph(
-    f"<b>Totale impact:</b> {total_impact_hours:.2f} uur (€{total_impact_eur:,.0f})",
-    styles["Normal"],
+    f"<b>Totale impact:</b> {total_hours:.2f} uur (€{total_eur:,.0f})",
+    styles["Normal"]
 ))
-elements.append(Spacer(1, 14))
+elements.append(Spacer(1, 12))
 
 
-# ===============================
-# AANBEVOLEN ACTIES
-# ===============================
 elements.append(Paragraph("<b>Aanbevolen acties (30 dagen)</b>", styles["Heading2"]))
-elements.append(Spacer(1, 6))
-
-for _, row in summary.head(3).iterrows():
-    elements.append(Paragraph(
-        f"<b>{row['event']}</b>: {advice_for(row['event'])}",
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 4))
+for rec in recommendations:
+    elements.append(Paragraph(rec, styles["Normal"]))
+elements.append(Spacer(1, 12))
 
 
-# ===============================
-# TABEL
-# ===============================
-elements.append(Spacer(1, 14))
+elements.append(Paragraph("<b>ROI-scenario’s</b>", styles["Heading2"]))
+roi_table = [["Scenario", "Uur / maand", "€ / maand"]]
+for r in roi_rows:
+    roi_table.append([
+        r["label"],
+        f"{r['hours']:.1f}",
+        f"€{r['eur']:,.0f}",
+    ])
+
+elements.append(Table(roi_table, hAlign="LEFT"))
+elements.append(Spacer(1, 12))
+
+
 elements.append(Paragraph("<b>Top knelpunten</b>", styles["Heading2"]))
-elements.append(Spacer(1, 6))
-
 table_data = [["Stap", "Aantal", "Impact (uur)"]]
 for _, r in summary.iterrows():
-    table_data.append([r["event"], int(r["count"]), f"{r['impact']:.2f}"])
+    table_data.append([
+        r["event"],
+        int(r["occurrences"]),
+        f"{r['total_impact_hours']:.2f}",
+    ])
 
 table = Table(table_data)
 table.setStyle(TableStyle([
@@ -175,29 +200,11 @@ table.setStyle(TableStyle([
 ]))
 elements.append(table)
 
+if CHART_PATH.exists():
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph("<b>Visualisaties</b>", styles["Heading2"]))
+    elements.append(Image(str(CHART_PATH), width=400, height=200))
 
-# ===============================
-# PAGINA 2 – VISUALISATIES
-# ===============================
-elements.append(PageBreak())
-elements.append(Paragraph("<b>Visualisaties</b>", styles["Title"]))
-elements.append(Spacer(1, 20))
-
-max_impact = summary["impact"].max() if not summary.empty else 1
-bar_width = 400
-bar_height = 14
-y = 0
-
-drawing = Drawing(500, 300)
-
-for _, row in summary.iterrows():
-    width = (row["impact"] / max_impact) * bar_width
-    drawing.add(Rect(0, y, width, bar_height, fillColor=colors.HexColor("#4F81BD")))
-    drawing.add(String(width + 5, y + 2, f"{row['impact']:.1f} u", fontSize=9))
-    drawing.add(String(0, y + 16, row["event"], fontSize=9))
-    y += 30
-
-elements.append(drawing)
 
 doc.build(elements)
 
@@ -205,11 +212,12 @@ doc.build(elements)
 # ===============================
 # METRICS
 # ===============================
-METRICS_PATH.write_text(json.dumps({
-    "created": datetime.now(timezone.utc).isoformat(),
-    "total_hours": total_impact_hours,
-    "total_eur": total_impact_eur,
+metrics = {
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "total_hours": float(total_hours),
+    "total_eur": float(total_eur),
     "pdf": OUTPUT_PDF.name,
-}, indent=2))
+}
+METRICS_PATH.write_text(json.dumps(metrics, indent=2))
 
 print("PDF gegenereerd:", OUTPUT_PDF)
