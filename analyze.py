@@ -4,16 +4,24 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timezone
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak,
+)
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
+from reportlab.graphics.shapes import Drawing, Rect, String
 
 
 # ===============================
 # ARGS
 # ===============================
-def _parse_float(x, default=0.0):
+def _parse_float(x: str, default: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
@@ -25,143 +33,101 @@ output_pdf_name = sys.argv[2] if len(sys.argv) > 2 else "process_report.pdf"
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
-ASSETS_DIR = BASE_DIR / "assets"
-
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 CSV_PATH = UPLOAD_DIR / "events.csv"
 OUTPUT_PDF = UPLOAD_DIR / output_pdf_name
 METRICS_PATH = UPLOAD_DIR / "last_metrics.json"
 
-LOGO_PATH = ASSETS_DIR / "logo.png"  # mag ontbreken
+if not CSV_PATH.exists():
+    raise FileNotFoundError("events.csv niet gevonden in /uploads")
 
 
 # ===============================
 # CSV INLEZEN
 # ===============================
-if not CSV_PATH.exists():
-    raise FileNotFoundError("events.csv niet gevonden in /uploads")
-
 df = pd.read_csv(CSV_PATH)
 
 COLUMN_ALIASES = {
-    "case_id": ["case_id", "case", "caseid", "ticket_id", "order_id"],
-    "timestamp": ["timestamp", "time", "datetime", "date"],
-    "event": ["event", "activity", "step", "status", "action", "event_name"],
+    "case_id": ["case_id", "case", "caseid", "ticket_id"],
+    "timestamp": ["timestamp", "time", "datetime"],
+    "event": ["event", "activity", "step", "status"],
 }
 
 normalized = {}
-for canonical, options in COLUMN_ALIASES.items():
+for canon, options in COLUMN_ALIASES.items():
     for col in options:
         if col in df.columns:
-            normalized[canonical] = col
+            normalized[canon] = col
             break
-
-missing = set(COLUMN_ALIASES.keys()) - set(normalized.keys())
-if missing:
-    raise ValueError(
-        f"Ontbrekende kolommen: {missing}. Gevonden: {list(df.columns)}"
-    )
 
 df = df.rename(columns={v: k for k, v in normalized.items()})
 
-
-# ===============================
-# CLEAN + SORT
-# ===============================
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 df = df.dropna(subset=["timestamp", "case_id", "event"])
 df = df.sort_values(["case_id", "timestamp"])
 
 
 # ===============================
-# PERIODE (voor maand/jaar extrapolatie)
-# ===============================
-period_start = df["timestamp"].min()
-period_end = df["timestamp"].max()
-period_hours = (period_end - period_start).total_seconds() / 3600 if pd.notna(period_start) and pd.notna(period_end) else 0.0
-
-# Guard: als periode te klein/ongeldig is, geen extrapolatie
-MIN_PERIOD_HOURS = 1.0
-can_extrapolate = period_hours >= MIN_PERIOD_HOURS
-
-
-# ===============================
-# DUUR PER STAP
+# DUUR + IMPACT
 # ===============================
 df["next_timestamp"] = df.groupby("case_id")["timestamp"].shift(-1)
-df["duration_hours"] = (df["next_timestamp"] - df["timestamp"]).dt.total_seconds() / 3600
+df["duration_hours"] = (
+    df["next_timestamp"] - df["timestamp"]
+).dt.total_seconds().div(3600)
 
 df = df.dropna(subset=["duration_hours"])
 df = df[df["duration_hours"] >= 0]
 
-
-# ===============================
-# BASELINE + IMPACT
-# ===============================
 baseline = df.groupby("event")["duration_hours"].median()
 df["baseline"] = df["event"].map(baseline)
 
-# impact = duur - baseline (alleen positieve impact telt)
-df["impact_hours"] = df["duration_hours"] - df["baseline"]
-delays = df[df["impact_hours"] > 0].copy()
-
-if eur_per_hour > 0:
-    delays["impact_eur"] = delays["impact_hours"] * eur_per_hour
-else:
-    delays["impact_eur"] = 0.0
+df["impact_hours"] = (df["duration_hours"] - df["baseline"]).clip(lower=0)
 
 summary = (
-    delays.groupby("event")
+    df[df["impact_hours"] > 0]
+    .groupby("event")
     .agg(
         count=("impact_hours", "count"),
-        total_hours=("impact_hours", "sum"),
-        total_eur=("impact_eur", "sum"),
+        impact=("impact_hours", "sum"),
     )
-    .sort_values("total_hours", ascending=False)
+    .sort_values("impact", ascending=False)
     .reset_index()
 )
 
-total_hours = float(summary["total_hours"].sum()) if not summary.empty else 0.0
-total_eur = float(summary["total_eur"].sum()) if not summary.empty else 0.0
+total_impact_hours = summary["impact"].sum()
+total_impact_eur = total_impact_hours * eur_per_hour
 
 
 # ===============================
-# ROI / MANAGEMENT METRICS (NIEUW)
+# ADVIESLOGICA
 # ===============================
-MONTH_HOURS = 30 * 24  # ~30 dagen
-FTE_HOURS_PER_MONTH = 160.0
+ADVICE_MAP = {
+    "assigned": "Automatiseer toewijzing en stel SLA op eerste reactie in.",
+    "waiting": "Gebruik klant-reminders en pauzeer SLA bij wachten op klant.",
+    "response": "Balanceer workload en introduceer WIP-limieten.",
+    "triage": "Versnel triage met vaste categorieën.",
+    "created": "Automatiseer ticketcreatie via formulieren of integraties.",
+}
 
-if can_extrapolate:
-    monthly_factor = MONTH_HOURS / period_hours
-    monthly_hours = total_hours * monthly_factor
-    monthly_eur = total_eur * monthly_factor
-else:
-    monthly_factor = 0.0
-    monthly_hours = 0.0
-    monthly_eur = 0.0
-
-yearly_hours = monthly_hours * 12 if can_extrapolate else 0.0
-yearly_eur = monthly_eur * 12 if can_extrapolate else 0.0
-
-fte_equivalent = (monthly_hours / FTE_HOURS_PER_MONTH) if can_extrapolate else 0.0
-
-# (Optioneel) “realistische verbetering” 20%
-improve_pct = 0.20
-potential_saving_hours = monthly_hours * improve_pct if can_extrapolate else 0.0
-potential_saving_eur = monthly_eur * improve_pct if can_extrapolate else 0.0
+def advice_for(step):
+    s = step.lower()
+    for k, v in ADVICE_MAP.items():
+        if k in s:
+            return v
+    return "Analyseer deze stap op standaardisatie en automatisering."
 
 
 # ===============================
-# PDF
+# PDF START
 # ===============================
 styles = getSampleStyleSheet()
 doc = SimpleDocTemplate(
     str(OUTPUT_PDF),
     pagesize=A4,
-    leftMargin=36,
     rightMargin=36,
-    topMargin=72,
+    leftMargin=36,
+    topMargin=36,
     bottomMargin=36,
 )
 
@@ -171,158 +137,79 @@ elements.append(Paragraph("<b>Prolixia – Support SLA Analyse</b>", styles["Tit
 elements.append(Spacer(1, 12))
 
 elements.append(Paragraph(
-    "Dit rapport toont structurele wachttijden en SLA-overtredingen op basis van support event-logs.",
-    styles["Normal"]
+    f"<b>Totale impact:</b> {total_impact_hours:.2f} uur (€{total_impact_eur:,.0f})",
+    styles["Normal"],
 ))
-elements.append(Spacer(1, 12))
+elements.append(Spacer(1, 14))
 
-# Periode info
-if pd.notna(period_start) and pd.notna(period_end):
-    elements.append(Paragraph(
-        f"<b>Analyseperiode:</b> {period_start.strftime('%d-%m-%Y %H:%M')} t/m {period_end.strftime('%d-%m-%Y %H:%M')}",
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 6))
-
-elements.append(Paragraph(
-    f"<b>Totale impact:</b> {total_hours:.2f} uur"
-    + (f" (€{total_eur:,.2f})" if eur_per_hour > 0 else ""),
-    styles["Normal"]
-))
-elements.append(Spacer(1, 16))
 
 # ===============================
-# MANAGEMENTSAMENVATTING (NIEUW)
+# AANBEVOLEN ACTIES
 # ===============================
-elements.append(Paragraph("<b>Managementsamenvatting</b>", styles["Heading2"]))
-elements.append(Spacer(1, 8))
+elements.append(Paragraph("<b>Aanbevolen acties (30 dagen)</b>", styles["Heading2"]))
+elements.append(Spacer(1, 6))
 
-if can_extrapolate:
+for _, row in summary.head(3).iterrows():
     elements.append(Paragraph(
-        f"• Geschatte maandimpact: <b>{monthly_hours:,.1f} uur</b>"
-        + (f" (≈ <b>€{monthly_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
+        f"<b>{row['event']}</b>: {advice_for(row['event'])}",
         styles["Normal"]
     ))
     elements.append(Spacer(1, 4))
 
-    elements.append(Paragraph(
-        f"• FTE-equivalent: <b>{fte_equivalent:.2f} FTE</b> (op basis van 160 uur/maand)",
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 4))
-
-    elements.append(Paragraph(
-        f"• Jaarimpact (12 maanden): <b>{yearly_hours:,.0f} uur</b>"
-        + (f" (≈ <b>€{yearly_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph(
-        f"• Potentiële besparing bij 20% verbetering: <b>{potential_saving_hours:,.1f} uur/maand</b>"
-        + (f" (≈ <b>€{potential_saving_eur:,.0f}</b>)" if eur_per_hour > 0 else ""),
-        styles["Normal"]
-    ))
-else:
-    elements.append(Paragraph(
-        "• Extrapolatie naar maand/jaar is niet mogelijk omdat de analyseperiode te klein of onduidelijk is.",
-        styles["Normal"]
-    ))
-
-elements.append(Spacer(1, 18))
 
 # ===============================
-# TOP KNELPUNTEN TABEL
+# TABEL
 # ===============================
+elements.append(Spacer(1, 14))
 elements.append(Paragraph("<b>Top knelpunten</b>", styles["Heading2"]))
-elements.append(Spacer(1, 8))
+elements.append(Spacer(1, 6))
 
-if summary.empty:
-    elements.append(Paragraph("Geen significante vertragingen gevonden.", styles["Normal"]))
-else:
-    table_data = [["Stap", "Aantal", "Impact (uur)"]]
-    for _, r in summary.iterrows():
-        table_data.append([
-            str(r["event"]),
-            int(r["count"]),
-            f"{float(r['total_hours']):.2f}",
-        ])
+table_data = [["Stap", "Aantal", "Impact (uur)"]]
+for _, r in summary.iterrows():
+    table_data.append([r["event"], int(r["count"]), f"{r['impact']:.2f}"])
 
-    table = Table(table_data, hAlign="LEFT")
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
-    ]))
-    elements.append(table)
+table = Table(table_data)
+table.setStyle(TableStyle([
+    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+]))
+elements.append(table)
 
 
-def header_footer(canvas, doc_):
-    canvas.saveState()
+# ===============================
+# PAGINA 2 – VISUALISATIES
+# ===============================
+elements.append(PageBreak())
+elements.append(Paragraph("<b>Visualisaties</b>", styles["Title"]))
+elements.append(Spacer(1, 20))
 
-    # Logo (optioneel, mag nooit crashen)
-    if LOGO_PATH.exists():
-        try:
-            canvas.drawImage(
-                str(LOGO_PATH),
-                36,
-                A4[1] - 50,
-                width=120,
-                preserveAspectRatio=True,
-                mask="auto",
-            )
-        except Exception:
-            pass
+max_impact = summary["impact"].max() if not summary.empty else 1
+bar_width = 400
+bar_height = 14
+y = 0
 
-    canvas.setFont("Helvetica", 9)
-    canvas.setFillColor(colors.grey)
+drawing = Drawing(500, 300)
 
-    canvas.drawString(
-        36,
-        28,
-        f"Prolixia • {datetime.now().strftime('%d-%m-%Y')}"
-    )
-    canvas.drawRightString(
-        A4[0] - 36,
-        28,
-        f"Pagina {doc_.page}"
-    )
+for _, row in summary.iterrows():
+    width = (row["impact"] / max_impact) * bar_width
+    drawing.add(Rect(0, y, width, bar_height, fillColor=colors.HexColor("#4F81BD")))
+    drawing.add(String(width + 5, y + 2, f"{row['impact']:.1f} u", fontSize=9))
+    drawing.add(String(0, y + 16, row["event"], fontSize=9))
+    y += 30
 
-    canvas.restoreState()
+elements.append(drawing)
 
-
-doc.build(
-    elements,
-    onFirstPage=header_footer,
-    onLaterPages=header_footer
-)
+doc.build(elements)
 
 
 # ===============================
 # METRICS
 # ===============================
-metrics = {
-    "generated": datetime.now(timezone.utc).isoformat(),
-    "eur_per_hour": eur_per_hour,
-    "period_start": period_start.isoformat() if pd.notna(period_start) else None,
-    "period_end": period_end.isoformat() if pd.notna(period_end) else None,
-    "period_hours": period_hours,
-    "total_hours": total_hours,
-    "total_eur": total_eur,
-    "monthly_hours_est": monthly_hours,
-    "monthly_eur_est": monthly_eur,
-    "yearly_hours_est": yearly_hours,
-    "yearly_eur_est": yearly_eur,
-    "fte_equivalent": fte_equivalent,
-    "potential_saving_hours": potential_saving_hours,
-    "potential_saving_eur": potential_saving_eur,
+METRICS_PATH.write_text(json.dumps({
+    "created": datetime.now(timezone.utc).isoformat(),
+    "total_hours": total_impact_hours,
+    "total_eur": total_impact_eur,
     "pdf": OUTPUT_PDF.name,
-}
-
-METRICS_PATH.write_text(
-    json.dumps(metrics, ensure_ascii=False, indent=2),
-    encoding="utf-8"
-)
+}, indent=2))
 
 print("PDF gegenereerd:", OUTPUT_PDF)
-print("Metrics opgeslagen:", METRICS_PATH)
