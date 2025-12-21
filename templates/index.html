@@ -8,14 +8,16 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
     .card { max-width: 960px; padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px; background:#fff; }
     .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
-    .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; }
+    .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; text-decoration:none; display:inline-block; }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .btn.blue { background:#2563eb; }
+    .btn.red { background:#dc2626; }
     .muted { color:#64748b; }
     input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
     a { color:#0f172a; text-decoration:none; }
     hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
     .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
+    .box.warn { background:#fff7ed; border-color:#fed7aa; }
   </style>
 </head>
 <body>
@@ -54,7 +56,7 @@
 
       {% if not demo_used %}
         <form method="post" action="/demo">
-          <button class="btn">▶️ Analyseer demo-data</button>
+          <button class="btn" type="submit">▶️ Analyseer demo-data</button>
         </form>
       {% else %}
         <p class="muted">Demo is al gebruikt in deze browser.</p>
@@ -68,13 +70,26 @@
       <div class="row">
         <form method="post" action="/subscribe/basic">
           <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-          <button class="btn secondary">Basic – €19 / maand</button>
+          <button class="btn secondary" type="submit">Basic – €19 / maand</button>
         </form>
 
         <form method="post" action="/subscribe/pro">
           <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-          <button class="btn">Pro – €49 / maand</button>
+          <button class="btn" type="submit">Pro – €49 / maand</button>
         </form>
+      </div>
+
+      <div class="box" style="margin-top:18px;">
+        <b>Lievere een korte demo call?</b>
+        <p class="muted" style="margin:6px 0 0;">
+          Mail ons en stuur (optioneel) een voorbeeld-CSV. We laten in 10 minuten zien waar je SLA-tijd verdwijnt.
+        </p>
+        <div class="row" style="margin-top:12px;">
+          <a class="btn secondary"
+             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20wil%20graag%20een%20korte%20demo%20van%20Prolixia.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%20(Zendesk%2FJira%2Fetc.)%3A%20%0A%0AGroet%2C%0A">
+            Plan demo via e-mail
+          </a>
+        </div>
       </div>
 
     {% else %}
@@ -87,6 +102,20 @@
         <button class="btn" type="submit">Analyseer & genereer PDF</button>
       </form>
 
+      <div id="paywall" class="box warn" style="display:none; margin-top:14px;">
+        <b>Abonnement vereist</b>
+        <p class="muted" style="margin:6px 0 0;">
+          Wil je dit rapport op je eigen data? Start een abonnement, of plan een korte demo call.
+        </p>
+        <div class="row" style="margin-top:12px;">
+          <a class="btn blue" href="#subscribe">Start abonnement →</a>
+          <a class="btn secondary"
+             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20probeerde%20te%20uploaden%20maar%20heb%20nog%20geen%20abonnement.%20Ik%20wil%20graag%20een%20korte%20demo%20call.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%3A%20%0A%0AGroet%2C%0A">
+            Plan demo call
+          </a>
+        </div>
+      </div>
+
       <p id="msg" class="muted"></p>
     {% endif %}
   </div>
@@ -96,13 +125,23 @@
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const res = await fetch("/upload", { method: "POST", body: fd });
-      const data = await res.json();
 
-      if (data.filename) {
+      const res = await fetch("/upload", { method: "POST", body: fd });
+
+      // ✅ Paywall / leadgen bij 402
+      if (res.status === 402) {
+        document.getElementById("paywall").style.display = "block";
+        document.getElementById("msg").textContent = "";
+        return;
+      }
+
+      let data = {};
+      try { data = await res.json(); } catch (err) {}
+
+      if (res.ok && data.filename) {
         window.location = "/download/" + encodeURIComponent(data.filename);
       } else {
-        document.getElementById("msg").textContent = "Upload mislukt.";
+        document.getElementById("msg").textContent = "Upload mislukt. Controleer je CSV en probeer opnieuw.";
       }
     });
   </script>
