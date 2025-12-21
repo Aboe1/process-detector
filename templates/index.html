@@ -10,10 +10,12 @@
     .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
     .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
+    .btn.blue { background:#2563eb; }
     .muted { color:#64748b; }
     input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
     a { color:#0f172a; text-decoration:none; }
     hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
+    .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
   </style>
 </head>
 <body>
@@ -23,7 +25,29 @@
       <a href="/">← Landing</a>
     </div>
 
-    <p class="muted">Support/ITSM analyse: ontdek waar tickets blijven hangen.</p>
+    <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
+
+    {% if demo_used %}
+      <div class="box">
+        <b>✅ Demo gebruikt</b>
+        <div class="muted" style="margin-top:6px;">
+          {% if roi_month_eur %}
+            Geschatte maandimpact: <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
+            {% if roi_year_eur %} • Jaarimpact: <b>€{{ "{:,.0f}".format(roi_year_eur) }}</b>{% endif %}
+          {% else %}
+            Bekijk je demo PDF voor de impact.
+          {% endif %}
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          {% if last_demo_pdf %}
+            <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
+          {% endif %}
+          <a class="btn blue" href="#subscribe">Start abonnement →</a>
+        </div>
+      </div>
+      <hr>
+    {% endif %}
 
     {% if not active %}
       <h3>Probeer de demo</h3>
@@ -33,13 +57,13 @@
           <button class="btn">▶️ Analyseer demo-data</button>
         </form>
       {% else %}
-        <p class="muted">✅ Demo al gebruikt (open incognito om opnieuw te testen)</p>
+        <p class="muted">Demo is al gebruikt in deze browser.</p>
       {% endif %}
 
       <hr>
 
-      <h3>Start abonnement</h3>
-      <p class="muted">Analyseer je eigen supporttickets en ontvang PDF-rapporten.</p>
+      <h3 id="subscribe">Start abonnement</h3>
+      <p class="muted">Analyseer je eigen data en ontvang PDF-rapporten.</p>
 
       <div class="row">
         <form method="post" action="/subscribe/basic">

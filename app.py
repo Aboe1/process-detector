@@ -20,6 +20,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 TENANTS_FILE = DATA_DIR / "tenants.json"
 DEMO_CSV = UPLOAD_DIR / "demo.csv"
+LAST_METRICS = UPLOAD_DIR / "last_metrics.json"
 
 # ================= CONFIG =================
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
@@ -62,6 +63,15 @@ def is_active(email: str | None):
         return False
     return load_tenants().get(email, {}).get("active", False)
 
+def read_last_metrics():
+    if LAST_METRICS.exists():
+        try:
+            return json.loads(LAST_METRICS.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
 # ================= ROUTES =================
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request):
@@ -74,17 +84,33 @@ def app_home(request: Request):
     tenants = load_tenants()
     user = tenants.get(email, {}) if email else {}
 
+    demo_used = request.cookies.get("pd_demo_used") == "true"
+    last_demo_pdf = request.cookies.get("pd_last_demo_pdf")
+    metrics = read_last_metrics()
+
+    # ROI values to show on page (optional)
+    roi_month_eur = None
+    roi_year_eur = None
+    if metrics:
+        roi_month_eur = metrics.get("monthly_eur_est") or metrics.get("monthly_eur") or None
+        roi_year_eur = metrics.get("yearly_eur_est") or metrics.get("yearly_eur") or None
+
     return templates.TemplateResponse("index.html", {
         "request": request,
         "email": email,
         "active": is_active(email),
         "plan": user.get("plan", "basic"),
-        "demo_used": request.cookies.get("pd_demo_used") == "true"
+        "demo_used": demo_used,
+        "last_demo_pdf": last_demo_pdf,
+        "roi_month_eur": roi_month_eur,
+        "roi_year_eur": roi_year_eur,
     })
+
 
 # ================= DEMO =================
 @app.post("/demo")
 def demo(request: Request):
+    # 1 demo per browser
     if request.cookies.get("pd_demo_used") == "true":
         raise HTTPException(status_code=403, detail="Demo al gebruikt")
 
@@ -94,15 +120,13 @@ def demo(request: Request):
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
 
     pdf_name = "process_report_demo.pdf"
-    subprocess.run(
-        [sys.executable, "analyze.py", "60", pdf_name],
-        check=True
-    )
+    subprocess.run([sys.executable, "analyze.py", "60", pdf_name], check=True)
 
-    # ✅ 303 = force GET after POST (fix Method Not Allowed)
     resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
+    resp.set_cookie("pd_last_demo_pdf", pdf_name, max_age=31536000)
     return resp
+
 
 # ================= STRIPE CHECKOUT =================
 @app.post("/subscribe/{plan}")
@@ -127,6 +151,7 @@ def subscribe(plan: str, email: str = Form(...)):
 
     return RedirectResponse(session.url, status_code=303)
 
+
 # ================= STRIPE SUCCESS =================
 @app.get("/success")
 def success(session_id: str):
@@ -147,6 +172,7 @@ def success(session_id: str):
     resp.set_cookie("pd_token", sign(email), httponly=True, max_age=31536000)
     return resp
 
+
 # ================= WEBHOOK =================
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -158,10 +184,9 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook")
 
-    # Basic handling (best-effort)
     if event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
-        email = sub.get("customer_email")  # not always present depending on Stripe setup
+        email = sub.get("customer_email")
         if email:
             tenants = load_tenants()
             if email in tenants:
@@ -170,13 +195,10 @@ async def stripe_webhook(request: Request):
 
     return JSONResponse({"status": "ok"})
 
-# ================= UPLOAD =================
+
+# ================= UPLOAD (PAID ONLY) =================
 @app.post("/upload")
-async def upload(
-    request: Request,
-    file: UploadFile = File(...),
-    rate: int = Form(...)
-):
+async def upload(request: Request, file: UploadFile = File(...), rate: int = Form(...)):
     email = get_user(request)
     if not email or not is_active(email):
         raise HTTPException(status_code=402, detail="Abonnement vereist")
@@ -186,12 +208,10 @@ async def upload(
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     pdf_name = f"process_report_{stamp}.pdf"
 
-    subprocess.run(
-        [sys.executable, "analyze.py", str(rate), pdf_name],
-        check=True
-    )
+    subprocess.run([sys.executable, "analyze.py", str(rate), pdf_name], check=True)
 
     return {"filename": pdf_name}
+
 
 # ================= DOWNLOAD =================
 @app.get("/download/{filename}")
