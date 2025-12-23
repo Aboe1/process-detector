@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from datetime import datetime, timezone
@@ -26,6 +26,8 @@ LAST_METRICS = UPLOAD_DIR / "last_metrics.json"
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
+STRIPE_PRICE_ENTERPRISE = os.getenv("STRIPE_PRICE_ENTERPRISE")
+
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
 
@@ -76,6 +78,11 @@ def landing(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request})
 
 
+@app.get("/enterprise", response_class=HTMLResponse)
+def enterprise(request: Request):
+    return templates.TemplateResponse("enterprise.html", {"request": request})
+
+
 @app.get("/app", response_class=HTMLResponse)
 def app_home(request: Request):
     email = get_user(request)
@@ -103,20 +110,20 @@ def app_home(request: Request):
             "last_demo_pdf": last_demo_pdf,
             "roi_month_eur": roi_month_eur,
             "roi_year_eur": roi_year_eur,
-            "metrics": metrics,  # 🔥 SLA data
+            "metrics": metrics,
         },
     )
 
 # ================= DEMO =================
 @app.post("/demo")
 def demo():
-    if not DEMO_CSV.exists():
-        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt")
-
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
     pdf_name = "process_report_demo.pdf"
 
-    subprocess.run([sys.executable, "analyze.py", "60", pdf_name, "demo"], check=True)
+    subprocess.run(
+        [sys.executable, "analyze.py", "60", pdf_name, "demo"],
+        check=True
+    )
 
     resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
@@ -126,10 +133,15 @@ def demo():
 # ================= STRIPE =================
 @app.post("/subscribe/{plan}")
 def subscribe(plan: str, email: str = Form(...)):
-    if plan not in ("basic", "pro"):
+    if plan not in ("basic", "pro", "enterprise"):
         raise HTTPException(status_code=400, detail="Ongeldig plan")
 
-    price_id = STRIPE_PRICE_BASIC if plan == "basic" else STRIPE_PRICE_PRO
+    if plan == "basic":
+        price_id = STRIPE_PRICE_BASIC
+    elif plan == "pro":
+        price_id = STRIPE_PRICE_PRO
+    else:
+        price_id = STRIPE_PRICE_ENTERPRISE
 
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -155,7 +167,10 @@ async def upload(request: Request, file: UploadFile = File(...), rate: int = For
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     pdf_name = f"process_report_{stamp}.pdf"
 
-    subprocess.run([sys.executable, "analyze.py", str(rate), pdf_name, email], check=True)
+    subprocess.run(
+        [sys.executable, "analyze.py", str(rate), pdf_name, email],
+        check=True
+    )
 
     return {"filename": pdf_name}
 
@@ -166,4 +181,3 @@ def download(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden")
     return FileResponse(path, media_type="application/pdf")
-
