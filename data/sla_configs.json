@@ -1,0 +1,12 @@
+{
+  "demo": {
+    "currency": "EUR",
+    "penalty_model": "per_hour",
+    "sla": {
+      "first_response": { "target_hours": 2, "penalty_per_hour": 150 },
+      "resolution":     { "target_hours": 24, "penalty_per_hour": 300 },
+      "waiting_for_customer": { "target_hours": 72, "pause_sla": true },
+      "waiting_for_internal_team": { "target_hours": 12, "penalty_per_hour": 120 }
+    }
+  }
+}

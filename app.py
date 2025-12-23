@@ -116,7 +116,7 @@ def demo():
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
     pdf_name = "process_report_demo.pdf"
 
-    subprocess.run([sys.executable, "analyze.py", "60", pdf_name], check=True)
+    subprocess.run([sys.executable, "analyze.py", "60", pdf_name, "demo"], check=True)
 
     resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
@@ -155,7 +155,7 @@ async def upload(request: Request, file: UploadFile = File(...), rate: int = For
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     pdf_name = f"process_report_{stamp}.pdf"
 
-    subprocess.run([sys.executable, "analyze.py", str(rate), pdf_name], check=True)
+    subprocess.run([sys.executable, "analyze.py", str(rate), pdf_name, email], check=True)
 
     return {"filename": pdf_name}
 

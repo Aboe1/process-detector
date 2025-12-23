@@ -32,10 +32,12 @@ def _parse_float(x, default=0.0):
 
 eur_per_hour = _parse_float(sys.argv[1], 0.0) if len(sys.argv) > 1 else 0.0
 output_pdf_name = sys.argv[2] if len(sys.argv) > 2 else "process_report.pdf"
+tenant_key = sys.argv[3] if len(sys.argv) > 3 else "demo"   # ← NEW (email of "demo")
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 ASSETS_DIR = BASE_DIR / "assets"
+DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 CSV_PATH = UPLOAD_DIR / "events.csv"
@@ -46,17 +48,14 @@ PREV_METRICS_PATH = UPLOAD_DIR / "previous_metrics.json"
 
 LOGO_PATH = ASSETS_DIR / "logo.png"  # mag ontbreken
 
+SLA_CONFIG_PATH = DATA_DIR / "sla_configs.json"  # ← NEW
+
 
 # ===============================
-# SLA INTELLIGENCE (Stap 1)
+# SLA INTELLIGENCE (Stap 1 basis)
 # ===============================
-# SLA-target per stap wordt (voor nu) afgeleid van baseline (median) duur:
-# target = baseline * SLA_TARGET_MULTIPLIER
-SLA_TARGET_MULTIPLIER = 1.20  # 20% boven baseline = "binnen SLA"
-SLA_MIN_TARGET_HOURS = 0.05   # voorkomt extreem lage targets (3 min)
-
-# Risico: alleen voor overschrijdingen t.o.v. SLA-target
-# risk_eur = overschrijding_uren * eur_per_hour * factor
+SLA_TARGET_MULTIPLIER = 1.20
+SLA_MIN_TARGET_HOURS = 0.05
 DEFAULT_RISK_FACTOR = 1.25
 
 RISK_FACTOR_KEYWORDS = [
@@ -75,16 +74,27 @@ RISK_FACTOR_KEYWORDS = [
     ("queue", 1.3),
 ]
 
+# ===============================
+# STAP 2: SLA TYPES + EVENT MAPPING
+# ===============================
+EVENT_TO_SLA_TYPE = {
+    "assigned": "first_response",
+    "agent response": "first_response",
+    "triage": "first_response",
+    "ticket created": "first_response",
+    "created": "first_response",
+    "resolved": "resolution",
+    "closed": "resolution",
+    "waiting for customer": "waiting_for_customer",
+    "waiting for internal team": "waiting_for_internal_team",
+}
 
-def risk_factor_for_event(event_name: str) -> float:
-    try:
-        s = (event_name or "").strip().lower()
-    except Exception:
-        return DEFAULT_RISK_FACTOR
-    for key, factor in RISK_FACTOR_KEYWORDS:
+def _map_event_to_sla_type(ev: str) -> str | None:
+    s = (ev or "").strip().lower()
+    for key, sla_type in EVENT_TO_SLA_TYPE.items():
         if key in s:
-            return float(factor)
-    return float(DEFAULT_RISK_FACTOR)
+            return sla_type
+    return None
 
 
 # ===============================
@@ -104,9 +114,6 @@ def _write_json(path: Path, data: dict):
 
 
 def _safe_roll_metrics():
-    """
-    last_metrics.json -> previous_metrics.json (overwrite)
-    """
     if LAST_METRICS_PATH.exists():
         try:
             shutil.copyfile(LAST_METRICS_PATH, PREV_METRICS_PATH)
@@ -115,9 +122,6 @@ def _safe_roll_metrics():
 
 
 def _pct_change(curr, prev):
-    """
-    Returns percent change, or None if not computable
-    """
     try:
         curr = float(curr)
         prev = float(prev)
@@ -154,6 +158,40 @@ def _format_pct(x):
         return f"{float(x):.1f}%".replace(".", ",")
     except Exception:
         return "0,0%"
+
+
+def risk_factor_for_event(event_name: str) -> float:
+    s = (event_name or "").strip().lower()
+    for key, factor in RISK_FACTOR_KEYWORDS:
+        if key in s:
+            return float(factor)
+    return float(DEFAULT_RISK_FACTOR)
+
+
+# ===============================
+# STAP 2: SLA CONFIG LOADER
+# ===============================
+def load_sla_configs() -> dict:
+    data = _read_json(SLA_CONFIG_PATH)
+    return data if isinstance(data, dict) else {}
+
+
+def get_tenant_config(tenant: str) -> dict | None:
+    cfgs = load_sla_configs()
+    # exact match
+    if tenant in cfgs:
+        return cfgs.get(tenant)
+    # fallback: demo
+    if "demo" in cfgs:
+        return cfgs.get("demo")
+    return None
+
+
+def get_sla_rule(tenant_cfg: dict | None, sla_type: str | None) -> dict | None:
+    if not tenant_cfg or not sla_type:
+        return None
+    rules = tenant_cfg.get("sla", {}) or {}
+    return rules.get(sla_type)
 
 
 # ===============================
@@ -244,21 +282,56 @@ total_impact_eur = float(delays["impact_eur"].sum()) if not delays.empty else 0.
 
 
 # ===============================
-# SLA INTELLIGENCE BEREKENEN
+# STAP 2: SLA TARGET RESOLVER
 # ===============================
-# SLA-target per event (baseline * multiplier) met minimum target
-df["sla_target_hours"] = (df["baseline_hours"] * SLA_TARGET_MULTIPLIER).clip(lower=SLA_MIN_TARGET_HOURS)
+tenant_cfg = get_tenant_config(tenant_key)
+currency = (tenant_cfg or {}).get("currency", "EUR")
+penalty_model = (tenant_cfg or {}).get("penalty_model", "per_hour")
 
-df["sla_breach"] = df["duration_hours"] > df["sla_target_hours"]
+df["sla_type"] = df["event"].astype(str).apply(_map_event_to_sla_type)
+
+# default targets (baseline-based)
+df["sla_target_hours"] = (df["baseline_hours"] * SLA_TARGET_MULTIPLIER).clip(lower=SLA_MIN_TARGET_HOURS)
+df["pause_sla"] = False
+df["penalty_per_hour"] = 0.0
+
+# override with tenant config if exists
+if tenant_cfg:
+    def _apply_rule(row):
+        sla_type = row.get("sla_type")
+        rule = get_sla_rule(tenant_cfg, sla_type)
+        if not rule:
+            return row
+        # pause
+        if bool(rule.get("pause_sla", False)):
+            row["pause_sla"] = True
+        # target override
+        if rule.get("target_hours") is not None:
+            try:
+                row["sla_target_hours"] = max(float(rule["target_hours"]), SLA_MIN_TARGET_HOURS)
+            except Exception:
+                pass
+        # penalty per hour
+        if rule.get("penalty_per_hour") is not None:
+            try:
+                row["penalty_per_hour"] = float(rule["penalty_per_hour"])
+            except Exception:
+                pass
+        return row
+
+    df = df.apply(_apply_rule, axis=1)
+
+# if pause_sla true => treat as always compliant (no breach)
+df["sla_breach"] = (~df["pause_sla"]) & (df["duration_hours"] > df["sla_target_hours"])
 df["sla_over_hours"] = (df["duration_hours"] - df["sla_target_hours"]).clip(lower=0)
+df.loc[df["pause_sla"], "sla_over_hours"] = 0.0
 
 total_steps = int(len(df))
 total_breaches = int(df["sla_breach"].sum()) if total_steps > 0 else 0
-
 sla_compliance_pct = (100.0 * (total_steps - total_breaches) / total_steps) if total_steps > 0 else 0.0
 sla_breach_ratio = (100.0 * total_breaches / total_steps) if total_steps > 0 else 0.0
 
-# Risk in EUR alleen als eur_per_hour > 0
+# risk (eur_per_hour based) + penalties (contract)
 df["risk_factor"] = df["event"].astype(str).apply(risk_factor_for_event)
 
 df["sla_risk_eur"] = 0.0
@@ -266,6 +339,11 @@ if eur_per_hour > 0:
     df["sla_risk_eur"] = df["sla_over_hours"] * eur_per_hour * df["risk_factor"]
 
 sla_risk_total_eur = float(df["sla_risk_eur"].sum()) if eur_per_hour > 0 else 0.0
+
+# penalties (contractual exposure)
+df["sla_penalty_eur"] = 0.0
+df.loc[df["sla_breach"], "sla_penalty_eur"] = df["sla_over_hours"] * df["penalty_per_hour"]
+sla_penalty_total_eur = float(df["sla_penalty_eur"].sum())
 
 sla_by_event = (
     df.groupby("event")
@@ -275,24 +353,29 @@ sla_by_event = (
         compliance_pct=("sla_breach", lambda s: 100.0 * (len(s) - float(s.sum())) / max(1, len(s))),
         over_hours=("sla_over_hours", "sum"),
         risk_eur=("sla_risk_eur", "sum"),
+        penalty_eur=("sla_penalty_eur", "sum"),
+        sla_type=("sla_type", lambda x: (x.dropna().iloc[0] if len(x.dropna()) else None)),
     )
     .reset_index()
 )
-
 sla_by_event["breaches"] = sla_by_event["breaches"].astype(int)
 
-top_risk_event = None
-top_risk_eur = 0.0
+# top risk / penalty event
+top_risk_event, top_risk_eur = (None, 0.0)
 if not sla_by_event.empty and eur_per_hour > 0:
-    top_row = sla_by_event.sort_values("risk_eur", ascending=False).iloc[0]
-    top_risk_event = str(top_row["event"])
-    top_risk_eur = float(top_row["risk_eur"])
+    top = sla_by_event.sort_values("risk_eur", ascending=False).iloc[0]
+    top_risk_event, top_risk_eur = str(top["event"]), float(top["risk_eur"])
+
+top_penalty_event, top_penalty_eur = (None, 0.0)
+if not sla_by_event.empty and sla_penalty_total_eur > 0:
+    top = sla_by_event.sort_values("penalty_eur", ascending=False).iloc[0]
+    top_penalty_event, top_penalty_eur = str(top["event"]), float(top["penalty_eur"])
 
 
 # ===============================
 # MANAGEMENT METRICS (maand/jaar + FTE + besparing)
 # ===============================
-MONTH_HOURS = 30 * 24  # 30 dagen
+MONTH_HOURS = 30 * 24
 FTE_HOURS_PER_MONTH = 160.0
 
 monthly_factor = (MONTH_HOURS / period_hours) if can_extrapolate else 0.0
@@ -308,9 +391,11 @@ improve_pct = 0.20
 potential_saving_hours = monthly_hours_est * improve_pct if can_extrapolate else 0.0
 potential_saving_eur = monthly_eur_est * improve_pct if can_extrapolate else 0.0
 
-# SLA risk extrapolatie
 monthly_sla_risk_eur_est = (sla_risk_total_eur * monthly_factor) if (can_extrapolate and eur_per_hour > 0) else 0.0
 yearly_sla_risk_eur_est = monthly_sla_risk_eur_est * 12 if (can_extrapolate and eur_per_hour > 0) else 0.0
+
+monthly_penalty_eur_est = (sla_penalty_total_eur * monthly_factor) if can_extrapolate else 0.0
+yearly_penalty_eur_est = monthly_penalty_eur_est * 12 if can_extrapolate else 0.0
 
 
 # ===============================
@@ -331,6 +416,7 @@ previous_metrics = _read_json(PREV_METRICS_PATH)
 
 current_metrics = {
     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "tenant": tenant_key,
     "period": {
         "start": period_start.isoformat() if pd.notna(period_start) else None,
         "end": period_end.isoformat() if pd.notna(period_end) else None,
@@ -348,6 +434,9 @@ current_metrics = {
         "potential_saving_eur": potential_saving_eur,
     },
     "sla": {
+        "mode": "tenant_config" if tenant_cfg else "baseline_multiplier",
+        "currency": currency,
+        "penalty_model": penalty_model,
         "target_multiplier": SLA_TARGET_MULTIPLIER,
         "min_target_hours": SLA_MIN_TARGET_HOURS,
         "total_steps": total_steps,
@@ -359,6 +448,11 @@ current_metrics = {
         "yearly_risk_eur_est": yearly_sla_risk_eur_est,
         "top_risk_event": top_risk_event,
         "top_risk_eur": top_risk_eur,
+        "penalty_total_eur": sla_penalty_total_eur,
+        "monthly_penalty_eur_est": monthly_penalty_eur_est,
+        "yearly_penalty_eur_est": yearly_penalty_eur_est,
+        "top_penalty_event": top_penalty_event,
+        "top_penalty_eur": top_penalty_eur,
     },
     "top_bottleneck": {
         "event": top_bottleneck_event,
@@ -398,7 +492,6 @@ if previous_metrics and isinstance(previous_metrics, dict):
     prev_top = (previous_metrics.get("top_bottleneck", {}) or {}).get("event")
     curr_top = (current_metrics.get("top_bottleneck", {}) or {}).get("event")
 
-    # SLA trend
     prev_sla = previous_metrics.get("sla", {}) or {}
     curr_sla = current_metrics.get("sla", {}) or {}
 
@@ -410,6 +503,10 @@ if previous_metrics and isinstance(previous_metrics, dict):
     curr_risk_m = curr_sla.get("monthly_risk_eur_est", 0.0)
     delta_month_risk_eur = (float(curr_risk_m) - float(prev_risk_m)) if (eur_per_hour > 0 and can_extrapolate) else None
 
+    prev_pen_m = prev_sla.get("monthly_penalty_eur_est", 0.0)
+    curr_pen_m = curr_sla.get("monthly_penalty_eur_est", 0.0)
+    delta_month_penalty_eur = (float(curr_pen_m) - float(prev_pen_m)) if can_extrapolate else None
+
     comparison = {
         "pct_total": pct_total,
         "delta_month_eur": delta_month_eur,
@@ -418,6 +515,7 @@ if previous_metrics and isinstance(previous_metrics, dict):
         "curr_top": curr_top,
         "delta_compliance_pp": delta_compliance_pp,
         "delta_month_risk_eur": delta_month_risk_eur,
+        "delta_month_penalty_eur": delta_month_penalty_eur,
     }
 
 
@@ -465,10 +563,7 @@ class DrawingFlowable(Flowable):
         renderPDF.draw(self.drawing, self.canv, 0, 0)
 
 
-def make_bar_chart(data, title, width=520, height=360, value_suffix="u", value_fmt="{:.1f}"):
-    """
-    data: list of (label, value)
-    """
+def make_bar_chart(data, title, width=520, height=360, value_suffix="", value_fmt="{:.0f}"):
     d = Drawing(width, height)
     d.add(String(0, height - 16, title, fontName="Helvetica-Bold", fontSize=13, fillColor=colors.HexColor("#0f172a")))
 
@@ -504,7 +599,7 @@ def make_bar_chart(data, title, width=520, height=360, value_suffix="u", value_f
 
 
 # ===============================
-# PDF HEADER/FOOTER (logo optioneel)
+# PDF HEADER/FOOTER
 # ===============================
 def header_footer(canvas, doc):
     canvas.saveState()
@@ -545,11 +640,9 @@ doc = SimpleDocTemplate(
 
 elements = []
 
-# Titel
 elements.append(Paragraph("<b>Prolixia – Support SLA Analyse</b>", styles["Title"]))
 elements.append(Spacer(1, 10))
 
-# Periode
 if pd.notna(period_start) and pd.notna(period_end):
     elements.append(Paragraph(
         f"<b>Analyseperiode:</b> {period_start.strftime('%d-%m-%Y %H:%M')} t/m {period_end.strftime('%d-%m-%Y %H:%M')}",
@@ -564,150 +657,77 @@ elements.append(Paragraph(
 ))
 elements.append(Spacer(1, 12))
 
-# ===== Executive SLA Intelligence Summary (NIEUW) =====
+# Executive SLA
 elements.append(Paragraph("<b>Executive SLA Intelligence</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
-
 elements.append(Paragraph(
-    f"• SLA-compliance: <b>{_format_pct(sla_compliance_pct)}</b> "
-    f"(breach ratio: {_format_pct(sla_breach_ratio)})",
+    f"• SLA-compliance: <b>{_format_pct(sla_compliance_pct)}</b> (breach ratio: {_format_pct(sla_breach_ratio)})",
     styles["Normal"]
 ))
 elements.append(Spacer(1, 4))
 
-if eur_per_hour > 0:
-    if can_extrapolate:
-        elements.append(Paragraph(
-            f"• Financiële risico-exposure: <b>{_format_eur(monthly_sla_risk_eur_est)}/maand</b> "
-            f"(≈ {_format_eur(yearly_sla_risk_eur_est)}/jaar)",
-            styles["Normal"]
-        ))
-    else:
-        elements.append(Paragraph(
-            f"• Financiële risico (in analyseperiode): <b>{_format_eur(sla_risk_total_eur)}</b>",
-            styles["Normal"]
-        ))
-    elements.append(Spacer(1, 4))
-
-    if top_risk_event:
-        elements.append(Paragraph(
-            f"• Grootste SLA-risico processtap: <b>{top_risk_event}</b> "
-            f"({_format_eur(top_risk_eur)})",
-            styles["Normal"]
-        ))
-else:
+if eur_per_hour > 0 and can_extrapolate:
     elements.append(Paragraph(
-        "• Financiële risico-exposure: voeg een €-kostprijs per uur toe om risico in euro’s te berekenen.",
-        styles["Normal"]
-    ))
-
-elements.append(Spacer(1, 14))
-
-# Managementsamenvatting
-elements.append(Paragraph("<b>Managementsamenvatting</b>", styles["Heading2"]))
-elements.append(Spacer(1, 8))
-
-if can_extrapolate:
-    elements.append(Paragraph(
-        f"• Geschatte maandimpact: <b>{_format_hours(monthly_hours_est)}</b>"
-        + (f" (≈ <b>{_format_eur(monthly_eur_est)}</b>)" if eur_per_hour > 0 else ""),
+        f"• Financiële risico-exposure: <b>{_format_eur(monthly_sla_risk_eur_est)}/maand</b> (≈ {_format_eur(yearly_sla_risk_eur_est)}/jaar)",
         styles["Normal"]
     ))
     elements.append(Spacer(1, 4))
 
+if top_risk_event and eur_per_hour > 0:
     elements.append(Paragraph(
-        f"• FTE-equivalent: <b>{_format_fte(fte_equivalent)}</b> (op basis van 160 uur/maand)",
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 4))
-
-    elements.append(Paragraph(
-        f"• Jaarimpact: <b>{_format_hours(yearly_hours_est)}</b>"
-        + (f" (≈ <b>{_format_eur(yearly_eur_est)}</b>)" if eur_per_hour > 0 else ""),
+        f"• Grootste SLA-risico processtap: <b>{top_risk_event}</b> ({_format_eur(top_risk_eur)})",
         styles["Normal"]
     ))
     elements.append(Spacer(1, 6))
 
+# ===== NEW: Contractuele exposure (Stap 2) =====
+elements.append(Paragraph("<b>Contractuele SLA-exposure</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
+if sla_penalty_total_eur <= 0:
     elements.append(Paragraph(
-        f"• Potentiële besparing bij 20% verbetering: <b>{_format_hours(potential_saving_hours)}/maand</b>"
-        + (f" (≈ <b>{_format_eur(potential_saving_eur)}</b>/maand)" if eur_per_hour > 0 else ""),
+        "• Geen boete-simulatie actief (geen penalty_per_hour gevonden in klantconfig of geen breaches).",
         styles["Normal"]
     ))
 else:
-    elements.append(Paragraph(
-        "• Extrapolatie naar maand/jaar niet mogelijk (analyseperiode te klein of onduidelijk).",
-        styles["Normal"]
-    ))
+    if can_extrapolate:
+        elements.append(Paragraph(
+            f"• Geschatte boete-exposure: <b>{_format_eur(monthly_penalty_eur_est)}/maand</b> (≈ {_format_eur(yearly_penalty_eur_est)}/jaar)",
+            styles["Normal"]
+        ))
+    else:
+        elements.append(Paragraph(
+            f"• Boete-exposure in analyseperiode: <b>{_format_eur(sla_penalty_total_eur)}</b>",
+            styles["Normal"]
+        ))
+    elements.append(Spacer(1, 4))
+    if top_penalty_event:
+        elements.append(Paragraph(
+            f"• Grootste contractuele exposure: <b>{top_penalty_event}</b> ({_format_eur(top_penalty_eur)})",
+            styles["Normal"]
+        ))
 
 elements.append(Spacer(1, 14))
 
-# Vergelijking vorige periode
+# Vergelijking
 elements.append(Paragraph("<b>Vergelijking met vorige periode</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
-
 if comparison is None:
     elements.append(Paragraph(
-        "ℹ️ Dit is de <b>eerste analyse</b>. De volgende analyse wordt automatisch vergeleken met deze nulmeting.",
+        "Dit is de eerste analyse. De volgende analyse wordt automatisch vergeleken met deze nulmeting.",
         styles["Normal"]
     ))
 else:
-    pct = comparison.get("pct_total", None)
-    delta_month = comparison.get("delta_month_eur", None)
-    delta_fte = comparison.get("delta_fte", None)
     delta_comp_pp = comparison.get("delta_compliance_pp", None)
-    delta_risk_m = comparison.get("delta_month_risk_eur", None)
+    delta_pen_m = comparison.get("delta_month_penalty_eur", None)
 
-    if pct is not None:
-        trend = "📉 Verbetering" if pct < 0 else ("📈 Verslechtering" if pct > 0 else "➖ Geen verandering")
-        elements.append(Paragraph(f"{trend} t.o.v. vorige periode: <b>{pct:+.1f}%</b>", styles["Normal"]))
-        elements.append(Spacer(1, 6))
-
-    # SLA trend (NIEUW)
     if delta_comp_pp is not None:
-        elements.append(Paragraph(
-            f"• SLA-compliance verandering: <b>{delta_comp_pp:+.1f}pp</b>",
-            styles["Normal"]
-        ))
+        elements.append(Paragraph(f"• SLA-compliance verandering: <b>{delta_comp_pp:+.1f}pp</b>", styles["Normal"]))
         elements.append(Spacer(1, 4))
 
-    if eur_per_hour > 0 and delta_risk_m is not None:
-        elements.append(Paragraph(
-            f"• €-risico (maand) verschil: <b>{_format_eur(delta_risk_m)}</b> "
-            f"({'daling' if delta_risk_m < 0 else 'stijging' if delta_risk_m > 0 else 'gelijk'})",
-            styles["Normal"]
-        ))
-        elements.append(Spacer(1, 4))
+    if delta_pen_m is not None:
+        elements.append(Paragraph(f"• Boete-exposure (maand) verschil: <b>{_format_eur(delta_pen_m)}</b>", styles["Normal"]))
 
-    if eur_per_hour > 0 and delta_month is not None:
-        elements.append(Paragraph(
-            f"• Maandimpact verschil: <b>{_format_eur(delta_month)}</b> "
-            f"({'besparing' if delta_month < 0 else 'extra kosten' if delta_month > 0 else 'gelijk'})",
-            styles["Normal"]
-        ))
-        elements.append(Spacer(1, 4))
-
-    if can_extrapolate and delta_fte is not None:
-        elements.append(Paragraph(
-            f"• FTE verschil: <b>{delta_fte:+.2f} FTE</b>",
-            styles["Normal"]
-        ))
-        elements.append(Spacer(1, 4))
-
-    prev_top = comparison.get("prev_top")
-    curr_top = comparison.get("curr_top")
-    if curr_top:
-        if prev_top and prev_top != curr_top:
-            elements.append(Paragraph(
-                f"• Grootste bottleneck is verschoven van <b>{prev_top}</b> → <b>{curr_top}</b>",
-                styles["Normal"]
-            ))
-        else:
-            elements.append(Paragraph(
-                f"• Grootste bottleneck blijft: <b>{curr_top}</b>",
-                styles["Normal"]
-            ))
-
-elements.append(Spacer(1, 16))
+elements.append(Spacer(1, 14))
 
 # Aanbevolen acties
 elements.append(Paragraph("<b>Aanbevolen acties (eerste 30 dagen)</b>", styles["Heading2"]))
@@ -721,116 +741,62 @@ else:
 
 elements.append(Spacer(1, 12))
 
-# Top knelpunten tabel
-elements.append(Paragraph("<b>Top knelpunten</b>", styles["Heading2"]))
+# SLA tabel
+elements.append(Paragraph("<b>SLA compliance, risico & boete per processtap</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
-if summary.empty:
-    elements.append(Paragraph("Geen significante procesvertragingen gedetecteerd.", styles["Normal"]))
+if sla_by_event.empty:
+    elements.append(Paragraph("Geen SLA-data beschikbaar.", styles["Normal"]))
 else:
-    if eur_per_hour > 0:
-        table_data = [["Processtap", "Aantal", "Impact (uren)", "Impact (€)"]]
-        for _, row in summary.iterrows():
-            table_data.append([
-                str(row["event"]),
-                int(row["occurrences"]),
-                f"{float(row['total_impact_hours']):.2f}",
-                f"{float(row['total_impact_eur']):,.0f}".replace(",", "."),
-            ])
-    else:
-        table_data = [["Processtap", "Aantal", "Impact (uren)"]]
-        for _, row in summary.iterrows():
-            table_data.append([
-                str(row["event"]),
-                int(row["occurrences"]),
-                f"{float(row['total_impact_hours']):.2f}",
-            ])
+    table_rows = [["Processtap", "SLA-type", "Steps", "Breaches", "Compliance %", "Over (uur)", "Risico (€)", "Boete (€)"]]
+    top_df = sla_by_event.sort_values(["penalty_eur", "risk_eur"], ascending=False).head(12)
+    for _, r in top_df.iterrows():
+        table_rows.append([
+            str(r["event"]),
+            str(r["sla_type"] or "-"),
+            int(r["steps"]),
+            int(r["breaches"]),
+            f"{float(r['compliance_pct']):.1f}",
+            f"{float(r['over_hours']):.2f}",
+            f"{float(r['risk_eur']):,.0f}".replace(",", "."),
+            f"{float(r['penalty_eur']):,.0f}".replace(",", "."),
+        ])
 
-    table = Table(table_data, hAlign="LEFT")
+    table = Table(table_rows, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
     ]))
     elements.append(table)
 
-elements.append(Spacer(1, 14))
-
-# SLA Compliance & Risk tabel (NIEUW)
-elements.append(Paragraph("<b>SLA compliance & risico per processtap</b>", styles["Heading2"]))
-elements.append(Spacer(1, 8))
-
-sla_table_rows = []
-if sla_by_event.empty:
-    elements.append(Paragraph("Geen SLA-data beschikbaar.", styles["Normal"]))
-else:
-    if eur_per_hour > 0:
-        sla_table_rows.append(["Processtap", "Steps", "Breaches", "Compliance %", "Over (uur)", "Risico (€)"])
-        for _, r in sla_by_event.sort_values("risk_eur", ascending=False).head(12).iterrows():
-            sla_table_rows.append([
-                str(r["event"]),
-                int(r["steps"]),
-                int(r["breaches"]),
-                f"{float(r['compliance_pct']):.1f}",
-                f"{float(r['over_hours']):.2f}",
-                f"{float(r['risk_eur']):,.0f}".replace(",", "."),
-            ])
-    else:
-        sla_table_rows.append(["Processtap", "Steps", "Breaches", "Compliance %", "Over (uur)"])
-        for _, r in sla_by_event.sort_values("breaches", ascending=False).head(12).iterrows():
-            sla_table_rows.append([
-                str(r["event"]),
-                int(r["steps"]),
-                int(r["breaches"]),
-                f"{float(r['compliance_pct']):.1f}",
-                f"{float(r['over_hours']):.2f}",
-            ])
-
-    sla_table = Table(sla_table_rows, hAlign="LEFT")
-    sla_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-    ]))
-    elements.append(sla_table)
-
-# Visualisaties pagina
+# Visualisaties
 elements.append(PageBreak())
 elements.append(Paragraph("<b>Visualisaties</b>", styles["Title"]))
 elements.append(Spacer(1, 14))
 
-top_n = 10
-chart_series = []
-if not summary.empty:
-    for _, row in summary.head(top_n).iterrows():
-        chart_series.append((str(row["event"]), float(row["total_impact_hours"])))
-
-chart = make_bar_chart(chart_series, f"Impact (uren) per processtap — Top {min(top_n, len(chart_series))}", value_suffix="u", value_fmt="{:.1f}")
-elements.append(DrawingFlowable(chart))
-elements.append(Spacer(1, 10))
-elements.append(Paragraph("Hoe langer de balk, hoe groter de structurele vertraging in deze stap.", styles["Normal"]))
-elements.append(Spacer(1, 16))
-
-# Extra chart: SLA-risico (NIEUW, alleen bij €)
-if eur_per_hour > 0 and not sla_by_event.empty:
-    risk_series = []
-    for _, r in sla_by_event.sort_values("risk_eur", ascending=False).head(top_n).iterrows():
-        risk_series.append((str(r["event"]), float(r["risk_eur"])))
-
-    chart2 = make_bar_chart(risk_series, f"SLA risico (€) per processtap — Top {min(top_n, len(risk_series))}", value_suffix="", value_fmt="{:.0f}")
-    elements.append(DrawingFlowable(chart2))
+# Boete chart (if any)
+if not sla_by_event.empty and sla_by_event["penalty_eur"].sum() > 0:
+    series = [(str(r["event"]), float(r["penalty_eur"])) for _, r in sla_by_event.sort_values("penalty_eur", ascending=False).head(10).iterrows()]
+    chart = make_bar_chart(series, "Contractuele boete-exposure (€) per processtap — Top 10", value_suffix="", value_fmt="{:.0f}")
+    elements.append(DrawingFlowable(chart))
     elements.append(Spacer(1, 10))
-    elements.append(Paragraph("Deze grafiek toont de geschatte financiële exposure door SLA-overschrijdingen.", styles["Normal"]))
+    elements.append(Paragraph("Deze grafiek toont de boete-simulatie op basis van klant-SLA-configuratie.", styles["Normal"]))
+else:
+    # fallback: risk chart if eur_per_hour
+    if eur_per_hour > 0 and not sla_by_event.empty:
+        series = [(str(r["event"]), float(r["risk_eur"])) for _, r in sla_by_event.sort_values("risk_eur", ascending=False).head(10).iterrows()]
+        chart = make_bar_chart(series, "SLA risico (€) per processtap — Top 10", value_suffix="", value_fmt="{:.0f}")
+        elements.append(DrawingFlowable(chart))
+        elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Deze grafiek toont de geschatte financiële exposure door SLA-overschrijdingen.", styles["Normal"]))
+    else:
+        elements.append(Paragraph("Geen visualisaties beschikbaar.", styles["Normal"]))
 
-doc.build(
-    elements,
-    onFirstPage=header_footer,
-    onLaterPages=header_footer,
-)
+doc.build(elements, onFirstPage=header_footer, onLaterPages=header_footer)
 
 print(f"PDF gegenereerd: {OUTPUT_PDF}")
 print(f"Metrics saved: {LAST_METRICS_PATH} (previous: {PREV_METRICS_PATH})")
+print(f"Tenant: {tenant_key} (config: {'yes' if tenant_cfg else 'no'})")
