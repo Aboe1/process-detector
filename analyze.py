@@ -48,6 +48,46 @@ LOGO_PATH = ASSETS_DIR / "logo.png"  # mag ontbreken
 
 
 # ===============================
+# SLA INTELLIGENCE (Stap 1)
+# ===============================
+# SLA-target per stap wordt (voor nu) afgeleid van baseline (median) duur:
+# target = baseline * SLA_TARGET_MULTIPLIER
+SLA_TARGET_MULTIPLIER = 1.20  # 20% boven baseline = "binnen SLA"
+SLA_MIN_TARGET_HOURS = 0.05   # voorkomt extreem lage targets (3 min)
+
+# Risico: alleen voor overschrijdingen t.o.v. SLA-target
+# risk_eur = overschrijding_uren * eur_per_hour * factor
+DEFAULT_RISK_FACTOR = 1.25
+
+RISK_FACTOR_KEYWORDS = [
+    ("escalat", 2.0),
+    ("urgent", 2.0),
+    ("priority", 1.8),
+    ("p1", 1.8),
+    ("p0", 2.0),
+    ("security", 2.2),
+    ("outage", 2.2),
+    ("incident", 1.8),
+    ("waiting for customer", 1.1),
+    ("waiting", 1.1),
+    ("customer", 1.1),
+    ("internal", 1.3),
+    ("queue", 1.3),
+]
+
+
+def risk_factor_for_event(event_name: str) -> float:
+    try:
+        s = (event_name or "").strip().lower()
+    except Exception:
+        return DEFAULT_RISK_FACTOR
+    for key, factor in RISK_FACTOR_KEYWORDS:
+        if key in s:
+            return float(factor)
+    return float(DEFAULT_RISK_FACTOR)
+
+
+# ===============================
 # HELPERS
 # ===============================
 def _read_json(path: Path):
@@ -69,7 +109,6 @@ def _safe_roll_metrics():
     """
     if LAST_METRICS_PATH.exists():
         try:
-            # copy then replace to avoid weird rename issues on some FS
             shutil.copyfile(LAST_METRICS_PATH, PREV_METRICS_PATH)
         except Exception:
             pass
@@ -108,6 +147,13 @@ def _format_fte(x):
         return f"{float(x):.2f} FTE"
     except Exception:
         return "0.00 FTE"
+
+
+def _format_pct(x):
+    try:
+        return f"{float(x):.1f}%".replace(".", ",")
+    except Exception:
+        return "0,0%"
 
 
 # ===============================
@@ -198,6 +244,52 @@ total_impact_eur = float(delays["impact_eur"].sum()) if not delays.empty else 0.
 
 
 # ===============================
+# SLA INTELLIGENCE BEREKENEN
+# ===============================
+# SLA-target per event (baseline * multiplier) met minimum target
+df["sla_target_hours"] = (df["baseline_hours"] * SLA_TARGET_MULTIPLIER).clip(lower=SLA_MIN_TARGET_HOURS)
+
+df["sla_breach"] = df["duration_hours"] > df["sla_target_hours"]
+df["sla_over_hours"] = (df["duration_hours"] - df["sla_target_hours"]).clip(lower=0)
+
+total_steps = int(len(df))
+total_breaches = int(df["sla_breach"].sum()) if total_steps > 0 else 0
+
+sla_compliance_pct = (100.0 * (total_steps - total_breaches) / total_steps) if total_steps > 0 else 0.0
+sla_breach_ratio = (100.0 * total_breaches / total_steps) if total_steps > 0 else 0.0
+
+# Risk in EUR alleen als eur_per_hour > 0
+df["risk_factor"] = df["event"].astype(str).apply(risk_factor_for_event)
+
+df["sla_risk_eur"] = 0.0
+if eur_per_hour > 0:
+    df["sla_risk_eur"] = df["sla_over_hours"] * eur_per_hour * df["risk_factor"]
+
+sla_risk_total_eur = float(df["sla_risk_eur"].sum()) if eur_per_hour > 0 else 0.0
+
+sla_by_event = (
+    df.groupby("event")
+    .agg(
+        steps=("event", "count"),
+        breaches=("sla_breach", "sum"),
+        compliance_pct=("sla_breach", lambda s: 100.0 * (len(s) - float(s.sum())) / max(1, len(s))),
+        over_hours=("sla_over_hours", "sum"),
+        risk_eur=("sla_risk_eur", "sum"),
+    )
+    .reset_index()
+)
+
+sla_by_event["breaches"] = sla_by_event["breaches"].astype(int)
+
+top_risk_event = None
+top_risk_eur = 0.0
+if not sla_by_event.empty and eur_per_hour > 0:
+    top_row = sla_by_event.sort_values("risk_eur", ascending=False).iloc[0]
+    top_risk_event = str(top_row["event"])
+    top_risk_eur = float(top_row["risk_eur"])
+
+
+# ===============================
 # MANAGEMENT METRICS (maand/jaar + FTE + besparing)
 # ===============================
 MONTH_HOURS = 30 * 24  # 30 dagen
@@ -215,6 +307,10 @@ fte_equivalent = (monthly_hours_est / FTE_HOURS_PER_MONTH) if can_extrapolate el
 improve_pct = 0.20
 potential_saving_hours = monthly_hours_est * improve_pct if can_extrapolate else 0.0
 potential_saving_eur = monthly_eur_est * improve_pct if can_extrapolate else 0.0
+
+# SLA risk extrapolatie
+monthly_sla_risk_eur_est = (sla_risk_total_eur * monthly_factor) if (can_extrapolate and eur_per_hour > 0) else 0.0
+yearly_sla_risk_eur_est = monthly_sla_risk_eur_est * 12 if (can_extrapolate and eur_per_hour > 0) else 0.0
 
 
 # ===============================
@@ -251,6 +347,19 @@ current_metrics = {
         "potential_saving_hours": potential_saving_hours,
         "potential_saving_eur": potential_saving_eur,
     },
+    "sla": {
+        "target_multiplier": SLA_TARGET_MULTIPLIER,
+        "min_target_hours": SLA_MIN_TARGET_HOURS,
+        "total_steps": total_steps,
+        "total_breaches": total_breaches,
+        "compliance_pct": sla_compliance_pct,
+        "breach_ratio_pct": sla_breach_ratio,
+        "risk_total_eur": sla_risk_total_eur,
+        "monthly_risk_eur_est": monthly_sla_risk_eur_est,
+        "yearly_risk_eur_est": yearly_sla_risk_eur_est,
+        "top_risk_event": top_risk_event,
+        "top_risk_eur": top_risk_eur,
+    },
     "top_bottleneck": {
         "event": top_bottleneck_event,
         "impact_hours": top_bottleneck_hours,
@@ -278,12 +387,28 @@ if previous_metrics and isinstance(previous_metrics, dict):
     prev_fte = prev_imp.get("fte_equivalent", 0.0)
     curr_fte = curr_imp.get("fte_equivalent", 0.0)
 
-    pct_total = _pct_change(curr_total_eur, prev_total_eur) if eur_per_hour > 0 else _pct_change(curr_imp.get("total_hours", 0.0), prev_imp.get("total_hours", 0.0))
+    pct_total = (
+        _pct_change(curr_total_eur, prev_total_eur)
+        if eur_per_hour > 0
+        else _pct_change(curr_imp.get("total_hours", 0.0), prev_imp.get("total_hours", 0.0))
+    )
     delta_month_eur = (curr_month_eur - prev_month_eur) if eur_per_hour > 0 else None
     delta_fte = (curr_fte - prev_fte) if can_extrapolate else None
 
     prev_top = (previous_metrics.get("top_bottleneck", {}) or {}).get("event")
     curr_top = (current_metrics.get("top_bottleneck", {}) or {}).get("event")
+
+    # SLA trend
+    prev_sla = previous_metrics.get("sla", {}) or {}
+    curr_sla = current_metrics.get("sla", {}) or {}
+
+    prev_comp = prev_sla.get("compliance_pct", None)
+    curr_comp = curr_sla.get("compliance_pct", None)
+    delta_compliance_pp = (float(curr_comp) - float(prev_comp)) if (prev_comp is not None and curr_comp is not None) else None
+
+    prev_risk_m = prev_sla.get("monthly_risk_eur_est", 0.0)
+    curr_risk_m = curr_sla.get("monthly_risk_eur_est", 0.0)
+    delta_month_risk_eur = (float(curr_risk_m) - float(prev_risk_m)) if (eur_per_hour > 0 and can_extrapolate) else None
 
     comparison = {
         "pct_total": pct_total,
@@ -291,6 +416,8 @@ if previous_metrics and isinstance(previous_metrics, dict):
         "delta_fte": delta_fte,
         "prev_top": prev_top,
         "curr_top": curr_top,
+        "delta_compliance_pp": delta_compliance_pp,
+        "delta_month_risk_eur": delta_month_risk_eur,
     }
 
 
@@ -338,9 +465,9 @@ class DrawingFlowable(Flowable):
         renderPDF.draw(self.drawing, self.canv, 0, 0)
 
 
-def make_bar_chart(data, title, width=520, height=360):
+def make_bar_chart(data, title, width=520, height=360, value_suffix="u", value_fmt="{:.1f}"):
     """
-    data: list of (label, value) in hours
+    data: list of (label, value)
     """
     d = Drawing(width, height)
     d.add(String(0, height - 16, title, fontName="Helvetica-Bold", fontSize=13, fillColor=colors.HexColor("#0f172a")))
@@ -362,14 +489,14 @@ def make_bar_chart(data, title, width=520, height=360):
     y = top - row_h
     for label, val in data:
         bar_w = (float(val) / max_val) * chart_w
-        # label
         d.add(String(0, y + 7, str(label)[:30], fontName="Helvetica", fontSize=9))
-        # bar
         d.add(Rect(left_label, y + 4, bar_w, 12, fillColor=colors.HexColor("#0f172a"), strokeColor=None))
-        # value
-        d.add(String(left_label + chart_w + 6, y + 7, f"{float(val):.1f}u", fontName="Helvetica", fontSize=9))
+        try:
+            shown = value_fmt.format(float(val)) + value_suffix
+        except Exception:
+            shown = str(val) + value_suffix
+        d.add(String(left_label + chart_w + 6, y + 7, shown, fontName="Helvetica", fontSize=9))
         y -= row_h
-
         if y < 8:
             break
 
@@ -382,7 +509,6 @@ def make_bar_chart(data, title, width=520, height=360):
 def header_footer(canvas, doc):
     canvas.saveState()
 
-    # Logo (optioneel, mag nooit crashen)
     if LOGO_PATH.exists():
         try:
             canvas.drawImage(
@@ -436,6 +562,45 @@ elements.append(Paragraph(
     + (f" (≈ {_format_eur(total_impact_eur)})" if eur_per_hour > 0 else ""),
     styles["Normal"]
 ))
+elements.append(Spacer(1, 12))
+
+# ===== Executive SLA Intelligence Summary (NIEUW) =====
+elements.append(Paragraph("<b>Executive SLA Intelligence</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
+
+elements.append(Paragraph(
+    f"• SLA-compliance: <b>{_format_pct(sla_compliance_pct)}</b> "
+    f"(breach ratio: {_format_pct(sla_breach_ratio)})",
+    styles["Normal"]
+))
+elements.append(Spacer(1, 4))
+
+if eur_per_hour > 0:
+    if can_extrapolate:
+        elements.append(Paragraph(
+            f"• Financiële risico-exposure: <b>{_format_eur(monthly_sla_risk_eur_est)}/maand</b> "
+            f"(≈ {_format_eur(yearly_sla_risk_eur_est)}/jaar)",
+            styles["Normal"]
+        ))
+    else:
+        elements.append(Paragraph(
+            f"• Financiële risico (in analyseperiode): <b>{_format_eur(sla_risk_total_eur)}</b>",
+            styles["Normal"]
+        ))
+    elements.append(Spacer(1, 4))
+
+    if top_risk_event:
+        elements.append(Paragraph(
+            f"• Grootste SLA-risico processtap: <b>{top_risk_event}</b> "
+            f"({_format_eur(top_risk_eur)})",
+            styles["Normal"]
+        ))
+else:
+    elements.append(Paragraph(
+        "• Financiële risico-exposure: voeg een €-kostprijs per uur toe om risico in euro’s te berekenen.",
+        styles["Normal"]
+    ))
+
 elements.append(Spacer(1, 14))
 
 # Managementsamenvatting
@@ -476,7 +641,7 @@ else:
 
 elements.append(Spacer(1, 14))
 
-# Vergelijking vorige periode (NIEUW)
+# Vergelijking vorige periode
 elements.append(Paragraph("<b>Vergelijking met vorige periode</b>", styles["Heading2"]))
 elements.append(Spacer(1, 8))
 
@@ -489,11 +654,29 @@ else:
     pct = comparison.get("pct_total", None)
     delta_month = comparison.get("delta_month_eur", None)
     delta_fte = comparison.get("delta_fte", None)
+    delta_comp_pp = comparison.get("delta_compliance_pp", None)
+    delta_risk_m = comparison.get("delta_month_risk_eur", None)
 
     if pct is not None:
         trend = "📉 Verbetering" if pct < 0 else ("📈 Verslechtering" if pct > 0 else "➖ Geen verandering")
         elements.append(Paragraph(f"{trend} t.o.v. vorige periode: <b>{pct:+.1f}%</b>", styles["Normal"]))
         elements.append(Spacer(1, 6))
+
+    # SLA trend (NIEUW)
+    if delta_comp_pp is not None:
+        elements.append(Paragraph(
+            f"• SLA-compliance verandering: <b>{delta_comp_pp:+.1f}pp</b>",
+            styles["Normal"]
+        ))
+        elements.append(Spacer(1, 4))
+
+    if eur_per_hour > 0 and delta_risk_m is not None:
+        elements.append(Paragraph(
+            f"• €-risico (maand) verschil: <b>{_format_eur(delta_risk_m)}</b> "
+            f"({'daling' if delta_risk_m < 0 else 'stijging' if delta_risk_m > 0 else 'gelijk'})",
+            styles["Normal"]
+        ))
+        elements.append(Spacer(1, 4))
 
     if eur_per_hour > 0 and delta_month is not None:
         elements.append(Paragraph(
@@ -573,6 +756,48 @@ else:
     ]))
     elements.append(table)
 
+elements.append(Spacer(1, 14))
+
+# SLA Compliance & Risk tabel (NIEUW)
+elements.append(Paragraph("<b>SLA compliance & risico per processtap</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
+
+sla_table_rows = []
+if sla_by_event.empty:
+    elements.append(Paragraph("Geen SLA-data beschikbaar.", styles["Normal"]))
+else:
+    if eur_per_hour > 0:
+        sla_table_rows.append(["Processtap", "Steps", "Breaches", "Compliance %", "Over (uur)", "Risico (€)"])
+        for _, r in sla_by_event.sort_values("risk_eur", ascending=False).head(12).iterrows():
+            sla_table_rows.append([
+                str(r["event"]),
+                int(r["steps"]),
+                int(r["breaches"]),
+                f"{float(r['compliance_pct']):.1f}",
+                f"{float(r['over_hours']):.2f}",
+                f"{float(r['risk_eur']):,.0f}".replace(",", "."),
+            ])
+    else:
+        sla_table_rows.append(["Processtap", "Steps", "Breaches", "Compliance %", "Over (uur)"])
+        for _, r in sla_by_event.sort_values("breaches", ascending=False).head(12).iterrows():
+            sla_table_rows.append([
+                str(r["event"]),
+                int(r["steps"]),
+                int(r["breaches"]),
+                f"{float(r['compliance_pct']):.1f}",
+                f"{float(r['over_hours']):.2f}",
+            ])
+
+    sla_table = Table(sla_table_rows, hAlign="LEFT")
+    sla_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+    ]))
+    elements.append(sla_table)
+
 # Visualisaties pagina
 elements.append(PageBreak())
 elements.append(Paragraph("<b>Visualisaties</b>", styles["Title"]))
@@ -584,10 +809,22 @@ if not summary.empty:
     for _, row in summary.head(top_n).iterrows():
         chart_series.append((str(row["event"]), float(row["total_impact_hours"])))
 
-chart = make_bar_chart(chart_series, f"Impact (uren) per processtap — Top {min(top_n, len(chart_series))}")
+chart = make_bar_chart(chart_series, f"Impact (uren) per processtap — Top {min(top_n, len(chart_series))}", value_suffix="u", value_fmt="{:.1f}")
 elements.append(DrawingFlowable(chart))
 elements.append(Spacer(1, 10))
 elements.append(Paragraph("Hoe langer de balk, hoe groter de structurele vertraging in deze stap.", styles["Normal"]))
+elements.append(Spacer(1, 16))
+
+# Extra chart: SLA-risico (NIEUW, alleen bij €)
+if eur_per_hour > 0 and not sla_by_event.empty:
+    risk_series = []
+    for _, r in sla_by_event.sort_values("risk_eur", ascending=False).head(top_n).iterrows():
+        risk_series.append((str(r["event"]), float(r["risk_eur"])))
+
+    chart2 = make_bar_chart(risk_series, f"SLA risico (€) per processtap — Top {min(top_n, len(risk_series))}", value_suffix="", value_fmt="{:.0f}")
+    elements.append(DrawingFlowable(chart2))
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph("Deze grafiek toont de geschatte financiële exposure door SLA-overschrijdingen.", styles["Normal"]))
 
 doc.build(
     elements,
@@ -597,4 +834,3 @@ doc.build(
 
 print(f"PDF gegenereerd: {OUTPUT_PDF}")
 print(f"Metrics saved: {LAST_METRICS_PATH} (previous: {PREV_METRICS_PATH})")
-
