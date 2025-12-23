@@ -34,8 +34,12 @@
         <b>✅ Demo gebruikt</b>
         <div class="muted" style="margin-top:6px;">
           {% if roi_month_eur %}
-            Geschatte maandimpact: <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
-            {% if roi_year_eur %} • Jaarimpact: <b>€{{ "{:,.0f}".format(roi_year_eur) }}</b>{% endif %}
+            Geschatte maandimpact:
+            <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
+            {% if roi_year_eur %}
+              • Jaarimpact:
+              <b>€{{ "{:,.0f}".format(roi_year_eur) }}</b>
+            {% endif %}
           {% else %}
             Bekijk je demo PDF voor de impact.
           {% endif %}
@@ -48,6 +52,32 @@
           <a class="btn blue" href="#subscribe">Start abonnement →</a>
         </div>
       </div>
+
+      <!-- 🔥 SLA INTELLIGENCE TEASER (NIEUW) -->
+      {% if metrics and metrics.sla %}
+        <div class="box" style="margin-top:14px;">
+          <b>📊 SLA Intelligence (preview)</b>
+
+          <div class="muted" style="margin-top:6px;">
+            SLA-compliance:
+            <b>{{ "{:.1f}".format(metrics.sla.compliance_pct).replace('.', ',') }}%</b>
+            • Breach ratio:
+            <b>{{ "{:.1f}".format(metrics.sla.breach_ratio_pct).replace('.', ',') }}%</b>
+          </div>
+
+          {% if metrics.sla.monthly_risk_eur_est %}
+            <div class="muted" style="margin-top:4px;">
+              Financieel SLA-risico:
+              <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b> / maand
+            </div>
+          {% endif %}
+
+          <div class="row" style="margin-top:12px;">
+            <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
+          </div>
+        </div>
+      {% endif %}
+
       <hr>
     {% endif %}
 
@@ -79,19 +109,6 @@
         </form>
       </div>
 
-      <div class="box" style="margin-top:18px;">
-        <b>Lievere een korte demo call?</b>
-        <p class="muted" style="margin:6px 0 0;">
-          Mail ons en stuur (optioneel) een voorbeeld-CSV. We laten in 10 minuten zien waar je SLA-tijd verdwijnt.
-        </p>
-        <div class="row" style="margin-top:12px;">
-          <a class="btn secondary"
-             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20wil%20graag%20een%20korte%20demo%20van%20Prolixia.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%20(Zendesk%2FJira%2Fetc.)%3A%20%0A%0AGroet%2C%0A">
-            Plan demo via e-mail
-          </a>
-        </div>
-      </div>
-
     {% else %}
       <p>Welkom terug <b>{{ email }}</b> <span class="muted">({{ plan|upper }})</span></p>
 
@@ -102,20 +119,6 @@
         <button class="btn" type="submit">Analyseer & genereer PDF</button>
       </form>
 
-      <div id="paywall" class="box warn" style="display:none; margin-top:14px;">
-        <b>Abonnement vereist</b>
-        <p class="muted" style="margin:6px 0 0;">
-          Wil je dit rapport op je eigen data? Start een abonnement, of plan een korte demo call.
-        </p>
-        <div class="row" style="margin-top:12px;">
-          <a class="btn blue" href="#subscribe">Start abonnement →</a>
-          <a class="btn secondary"
-             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20probeerde%20te%20uploaden%20maar%20heb%20nog%20geen%20abonnement.%20Ik%20wil%20graag%20een%20korte%20demo%20call.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%3A%20%0A%0AGroet%2C%0A">
-            Plan demo call
-          </a>
-        </div>
-      </div>
-
       <p id="msg" class="muted"></p>
     {% endif %}
   </div>
@@ -125,19 +128,9 @@
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-
       const res = await fetch("/upload", { method: "POST", body: fd });
-
-      // ✅ Paywall / leadgen bij 402
-      if (res.status === 402) {
-        document.getElementById("paywall").style.display = "block";
-        document.getElementById("msg").textContent = "";
-        return;
-      }
-
       let data = {};
       try { data = await res.json(); } catch (err) {}
-
       if (res.ok && data.filename) {
         window.location = "/download/" + encodeURIComponent(data.filename);
       } else {
