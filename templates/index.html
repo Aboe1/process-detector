@@ -25,41 +25,52 @@
 
   <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
 
-  {% if demo_used %}
-    <div class="box">
-      <b>✅ Demo gebruikt</b>
-
-      {% if roi_month_eur %}
-        <p class="muted">
-          Geschatte maandimpact:
-          <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
-        </p>
-      {% endif %}
-
-      <div class="row">
-        <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
-        <a class="btn blue" href="#subscribe">Start abonnement →</a>
-      </div>
-    </div>
-
-    {% if metrics is defined and metrics and "sla" in metrics %}
-      <div class="box" style="margin-top:14px">
-        <b>📊 SLA Intelligence (preview)</b>
-
-        <p class="muted">
-          SLA-compliance:
-          <b>{{ "{:.1f}".format(metrics["sla"]["compliance_pct"]).replace('.', ',') }}%</b>
-          • Risico:
-          <b>€{{ "{:,.0f}".format(metrics["sla"]["monthly_risk_eur_est"]) }}</b> / maand
-        </p>
-
-        <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
-      </div>
+  <!-- ================= DEMO ================= -->
+  {% if not active %}
+    {% if not demo_used %}
+      <h3>Probeer de demo</h3>
+      <form method="post" action="/demo">
+        <button class="btn blue">▶️ Analyseer demo-data</button>
+      </form>
+      <hr>
     {% endif %}
 
-    <hr>
+    {% if demo_used %}
+      <div class="box">
+        <b>✅ Demo gebruikt</b>
+
+        {% if roi_month_eur %}
+          <p class="muted">
+            Geschatte maandimpact:
+            <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
+          </p>
+        {% endif %}
+
+        <div class="row">
+          <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
+          <a class="btn blue" href="#subscribe">Start abonnement →</a>
+        </div>
+      </div>
+
+      {% if metrics is defined and metrics and "sla" in metrics %}
+        <div class="box" style="margin-top:14px">
+          <b>📊 SLA Intelligence (preview)</b>
+
+          <p class="muted">
+            SLA-compliance:
+            <b>{{ "{:.1f}".format(metrics["sla"]["compliance_pct"]).replace('.', ',') }}%</b>
+            • Risico:
+            <b>€{{ "{:,.0f}".format(metrics["sla"]["monthly_risk_eur_est"]) }}</b> / maand
+          </p>
+
+          <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
+        </div>
+      {% endif %}
+      <hr>
+    {% endif %}
   {% endif %}
 
+  <!-- ================= SUBSCRIBE ================= -->
   <h3 id="subscribe">Start abonnement</h3>
   <div class="row">
     <form method="post" action="/subscribe/basic">
