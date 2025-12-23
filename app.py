@@ -24,7 +24,6 @@ LAST_METRICS = UPLOAD_DIR / "last_metrics.json"
 
 # ================= CONFIG =================
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
@@ -71,8 +70,12 @@ def read_last_metrics():
             return None
     return None
 
-
 # ================= ROUTES =================
+@app.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    return templates.TemplateResponse("landing.html", {"request": request})
+
+
 @app.get("/app", response_class=HTMLResponse)
 def app_home(request: Request):
     email = get_user(request)
@@ -100,24 +103,19 @@ def app_home(request: Request):
             "last_demo_pdf": last_demo_pdf,
             "roi_month_eur": roi_month_eur,
             "roi_year_eur": roi_year_eur,
-            "metrics": metrics,
+            "metrics": metrics,  # 🔥 SLA data
         },
     )
 
-
 # ================= DEMO =================
 @app.post("/demo")
-def demo(request: Request):
-    # 1 demo per browser
-    if request.cookies.get("pd_demo_used") == "true":
-        raise HTTPException(status_code=403, detail="Demo al gebruikt")
-
+def demo():
     if not DEMO_CSV.exists():
-        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt. Voeg uploads/demo.csv toe aan je repo.")
+        raise HTTPException(status_code=500, detail="Demo CSV ontbreekt")
 
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
-
     pdf_name = "process_report_demo.pdf"
+
     subprocess.run([sys.executable, "analyze.py", "60", pdf_name], check=True)
 
     resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
@@ -125,15 +123,11 @@ def demo(request: Request):
     resp.set_cookie("pd_last_demo_pdf", pdf_name, max_age=31536000)
     return resp
 
-
-# ================= STRIPE CHECKOUT =================
+# ================= STRIPE =================
 @app.post("/subscribe/{plan}")
 def subscribe(plan: str, email: str = Form(...)):
     if plan not in ("basic", "pro"):
         raise HTTPException(status_code=400, detail="Ongeldig plan")
-
-    if not STRIPE_SECRET_KEY or not STRIPE_PRICE_BASIC or not STRIPE_PRICE_PRO:
-        raise HTTPException(status_code=500, detail="Stripe is niet geconfigureerd")
 
     price_id = STRIPE_PRICE_BASIC if plan == "basic" else STRIPE_PRICE_PRO
 
@@ -142,59 +136,14 @@ def subscribe(plan: str, email: str = Form(...)):
         payment_method_types=["card", "ideal"],
         line_items=[{"price": price_id, "quantity": 1}],
         customer_email=email,
-        success_url=f"{BASE_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+        success_url=f"{BASE_URL}/app",
         cancel_url=f"{BASE_URL}/app",
         metadata={"plan": plan, "email": email},
     )
 
     return RedirectResponse(session.url, status_code=303)
 
-
-# ================= STRIPE SUCCESS =================
-@app.get("/success")
-def success(session_id: str):
-    session = stripe.checkout.Session.retrieve(session_id)
-
-    email = session.customer_email
-    plan = session.metadata.get("plan", "basic") if session.metadata else "basic"
-
-    tenants = load_tenants()
-    tenants[email] = {
-        "active": True,
-        "plan": plan,
-        "since": datetime.now(timezone.utc).isoformat()
-    }
-    save_tenants(tenants)
-
-    resp = RedirectResponse("/app", status_code=303)
-    resp.set_cookie("pd_token", sign(email), httponly=True, max_age=31536000)
-    return resp
-
-
-# ================= WEBHOOK =================
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature")
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid webhook")
-
-    if event["type"] == "customer.subscription.deleted":
-        sub = event["data"]["object"]
-        email = sub.get("customer_email")
-        if email:
-            tenants = load_tenants()
-            if email in tenants:
-                tenants[email]["active"] = False
-                save_tenants(tenants)
-
-    return JSONResponse({"status": "ok"})
-
-
-# ================= UPLOAD (PAID ONLY) =================
+# ================= UPLOAD =================
 @app.post("/upload")
 async def upload(request: Request, file: UploadFile = File(...), rate: int = Form(...)):
     email = get_user(request)
@@ -210,7 +159,6 @@ async def upload(request: Request, file: UploadFile = File(...), rate: int = For
 
     return {"filename": pdf_name}
 
-
 # ================= DOWNLOAD =================
 @app.get("/download/{filename}")
 def download(filename: str):
@@ -218,3 +166,4 @@ def download(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Bestand niet gevonden")
     return FileResponse(path, media_type="application/pdf")
+
