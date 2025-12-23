@@ -73,11 +73,6 @@ def read_last_metrics():
 
 
 # ================= ROUTES =================
-@app.get("/", response_class=HTMLResponse)
-def landing(request: Request):
-    return templates.TemplateResponse("landing.html", {"request": request})
-
-
 @app.get("/app", response_class=HTMLResponse)
 def app_home(request: Request):
     email = get_user(request)
@@ -88,26 +83,26 @@ def app_home(request: Request):
     last_demo_pdf = request.cookies.get("pd_last_demo_pdf")
     metrics = read_last_metrics()
 
-    # ROI values to show on page (optional)
     roi_month_eur = None
     roi_year_eur = None
     if metrics:
-        roi_month_eur = metrics.get("monthly_eur_est") or metrics.get("monthly_eur") or None
-        roi_year_eur = metrics.get("yearly_eur_est") or metrics.get("yearly_eur") or None
+        roi_month_eur = metrics.get("impact", {}).get("monthly_eur_est")
+        roi_year_eur = metrics.get("impact", {}).get("yearly_eur_est")
 
-    return templates.TemplateResponse("index.html", {
-    "request": request,
-    "email": email,
-    "active": is_active(email),
-    "plan": user.get("plan", "basic"),
-    "demo_used": demo_used,
-    "last_demo_pdf": last_demo_pdf,
-    "roi_month_eur": roi_month_eur,
-    "roi_year_eur": roi_year_eur,
-    "metrics": metrics,  
-})
-
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "email": email,
+            "active": is_active(email),
+            "plan": user.get("plan", "basic"),
+            "demo_used": demo_used,
+            "last_demo_pdf": last_demo_pdf,
+            "roi_month_eur": roi_month_eur,
+            "roi_year_eur": roi_year_eur,
+            "metrics": metrics,
+        },
+    )
 
 
 # ================= DEMO =================
