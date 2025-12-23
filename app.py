@@ -96,14 +96,17 @@ def app_home(request: Request):
         roi_year_eur = metrics.get("yearly_eur_est") or metrics.get("yearly_eur") or None
 
     return templates.TemplateResponse("index.html", {
-        "request": request,
-        "email": email,
-        "active": is_active(email),
-        "plan": user.get("plan", "basic"),
-        "demo_used": demo_used,
-        "last_demo_pdf": last_demo_pdf,
-        "roi_month_eur": roi_month_eur,
-        "roi_year_eur": roi_year_eur,
+    "request": request,
+    "email": email,
+    "active": is_active(email),
+    "plan": user.get("plan", "basic"),
+    "demo_used": demo_used,
+    "last_demo_pdf": last_demo_pdf,
+    "roi_month_eur": roi_month_eur,
+    "roi_year_eur": roi_year_eur,
+    "metrics": metrics,  
+})
+
     })
 
 
