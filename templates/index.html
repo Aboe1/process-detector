@@ -54,29 +54,30 @@
       </div>
 
       <!-- 🔥 SLA INTELLIGENCE TEASER (NIEUW) -->
-      {% if metrics and metrics.sla %}
-        <div class="box" style="margin-top:14px;">
-          <b>📊 SLA Intelligence (preview)</b>
+      {% if metrics and metrics["sla"] %}
+  <div class="box" style="margin-top:14px;">
+    <b>📊 SLA Intelligence (preview)</b>
 
-          <div class="muted" style="margin-top:6px;">
-            SLA-compliance:
-            <b>{{ "{:.1f}".format(metrics.sla.compliance_pct).replace('.', ',') }}%</b>
-            • Breach ratio:
-            <b>{{ "{:.1f}".format(metrics.sla.breach_ratio_pct).replace('.', ',') }}%</b>
-          </div>
+    <div class="muted" style="margin-top:6px;">
+      SLA-compliance:
+      <b>{{ "{:.1f}".format(metrics["sla"]["compliance_pct"]).replace('.', ',') }}%</b>
+      • Breach ratio:
+      <b>{{ "{:.1f}".format(metrics["sla"]["breach_ratio_pct"]).replace('.', ',') }}%</b>
+    </div>
 
-          {% if metrics.sla.monthly_risk_eur_est %}
-            <div class="muted" style="margin-top:4px;">
-              Financieel SLA-risico:
-              <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b> / maand
-            </div>
-          {% endif %}
+    {% if metrics["sla"]["monthly_risk_eur_est"] %}
+      <div class="muted" style="margin-top:4px;">
+        Financieel SLA-risico:
+        <b>€{{ "{:,.0f}".format(metrics["sla"]["monthly_risk_eur_est"]) }}</b> / maand
+      </div>
+    {% endif %}
 
-          <div class="row" style="margin-top:12px;">
-            <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
-          </div>
-        </div>
-      {% endif %}
+    <div class="row" style="margin-top:12px;">
+      <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
+    </div>
+  </div>
+{% endif %}
+
 
       <hr>
     {% endif %}
