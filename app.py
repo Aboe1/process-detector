@@ -5,8 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import os, json, stripe, subprocess, sys, shutil, hmac, hashlib
 
-# ================= SETUP =================
-app = FastAPI(title="Prolixia – Support Process Analyzer")
+app = FastAPI(title="Prolixia – Support SLA Intelligence")
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -19,15 +18,14 @@ DATA_DIR.mkdir(exist_ok=True)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 TENANTS_FILE = DATA_DIR / "tenants.json"
-DEMO_CSV = UPLOAD_DIR / "demo.csv"
 LAST_METRICS = UPLOAD_DIR / "last_metrics.json"
+DEMO_CSV = UPLOAD_DIR / "demo.csv"
 
 # ================= CONFIG =================
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_BASIC = os.getenv("STRIPE_PRICE_BASIC")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO")
 STRIPE_PRICE_ENTERPRISE = os.getenv("STRIPE_PRICE_ENTERPRISE")
-
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOKEN_SIGNING_SECRET = os.getenv("TOKEN_SIGNING_SECRET", "change-me")
 
@@ -36,14 +34,11 @@ stripe.api_key = STRIPE_SECRET_KEY
 # ================= HELPERS =================
 def load_tenants():
     if TENANTS_FILE.exists():
-        try:
-            return json.loads(TENANTS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        return json.loads(TENANTS_FILE.read_text(encoding="utf-8"))
     return {}
 
 def save_tenants(data):
-    TENANTS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    TENANTS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 def sign(email: str):
     sig = hmac.new(TOKEN_SIGNING_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
@@ -66,10 +61,7 @@ def is_active(email: str | None):
 
 def read_last_metrics():
     if LAST_METRICS.exists():
-        try:
-            return json.loads(LAST_METRICS.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        return json.loads(LAST_METRICS.read_text(encoding="utf-8"))
     return None
 
 # ================= ROUTES =================
@@ -77,11 +69,9 @@ def read_last_metrics():
 def landing(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request})
 
-
 @app.get("/enterprise", response_class=HTMLResponse)
 def enterprise(request: Request):
     return templates.TemplateResponse("enterprise.html", {"request": request})
-
 
 @app.get("/app", response_class=HTMLResponse)
 def app_home(request: Request):
@@ -89,15 +79,7 @@ def app_home(request: Request):
     tenants = load_tenants()
     user = tenants.get(email, {}) if email else {}
 
-    demo_used = request.cookies.get("pd_demo_used") == "true"
-    last_demo_pdf = request.cookies.get("pd_last_demo_pdf")
     metrics = read_last_metrics()
-
-    roi_month_eur = None
-    roi_year_eur = None
-    if metrics:
-        roi_month_eur = metrics.get("impact", {}).get("monthly_eur_est")
-        roi_year_eur = metrics.get("impact", {}).get("yearly_eur_est")
 
     return templates.TemplateResponse(
         "index.html",
@@ -106,10 +88,9 @@ def app_home(request: Request):
             "email": email,
             "active": is_active(email),
             "plan": user.get("plan", "basic"),
-            "demo_used": demo_used,
-            "last_demo_pdf": last_demo_pdf,
-            "roi_month_eur": roi_month_eur,
-            "roi_year_eur": roi_year_eur,
+            "demo_used": request.cookies.get("pd_demo_used") == "true",
+            "last_demo_pdf": request.cookies.get("pd_last_demo_pdf"),
+            "roi_month_eur": metrics.get("impact", {}).get("monthly_eur_est") if metrics else None,
             "metrics": metrics,
         },
     )
@@ -119,11 +100,7 @@ def app_home(request: Request):
 def demo():
     shutil.copyfile(DEMO_CSV, UPLOAD_DIR / "events.csv")
     pdf_name = "process_report_demo.pdf"
-
-    subprocess.run(
-        [sys.executable, "analyze.py", "60", pdf_name, "demo"],
-        check=True
-    )
+    subprocess.run([sys.executable, "analyze.py", "60", pdf_name, "demo"], check=True)
 
     resp = RedirectResponse(url=f"/download/{pdf_name}", status_code=303)
     resp.set_cookie("pd_demo_used", "true", max_age=31536000)
@@ -134,14 +111,13 @@ def demo():
 @app.post("/subscribe/{plan}")
 def subscribe(plan: str, email: str = Form(...)):
     if plan not in ("basic", "pro", "enterprise"):
-        raise HTTPException(status_code=400, detail="Ongeldig plan")
+        raise HTTPException(400)
 
-    if plan == "basic":
-        price_id = STRIPE_PRICE_BASIC
-    elif plan == "pro":
-        price_id = STRIPE_PRICE_PRO
-    else:
-        price_id = STRIPE_PRICE_ENTERPRISE
+    price_id = {
+        "basic": STRIPE_PRICE_BASIC,
+        "pro": STRIPE_PRICE_PRO,
+        "enterprise": STRIPE_PRICE_ENTERPRISE
+    }[plan]
 
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -152,7 +128,6 @@ def subscribe(plan: str, email: str = Form(...)):
         cancel_url=f"{BASE_URL}/app",
         metadata={"plan": plan, "email": email},
     )
-
     return RedirectResponse(session.url, status_code=303)
 
 # ================= UPLOAD =================
@@ -160,24 +135,14 @@ def subscribe(plan: str, email: str = Form(...)):
 async def upload(request: Request, file: UploadFile = File(...), rate: int = Form(...)):
     email = get_user(request)
     if not email or not is_active(email):
-        raise HTTPException(status_code=402, detail="Abonnement vereist")
+        raise HTTPException(402)
 
     (UPLOAD_DIR / "events.csv").write_bytes(await file.read())
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    pdf_name = f"process_report_{stamp}.pdf"
-
-    subprocess.run(
-        [sys.executable, "analyze.py", str(rate), pdf_name, email],
-        check=True
-    )
-
+    pdf_name = f"process_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
+    subprocess.run([sys.executable, "analyze.py", str(rate), pdf_name, email], check=True)
     return {"filename": pdf_name}
 
-# ================= DOWNLOAD =================
 @app.get("/download/{filename}")
 def download(filename: str):
-    path = UPLOAD_DIR / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Bestand niet gevonden")
-    return FileResponse(path, media_type="application/pdf")
+    return FileResponse(UPLOAD_DIR / filename, media_type="application/pdf")
