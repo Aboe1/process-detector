@@ -1,34 +1,59 @@
 case_id,timestamp,event
-TCK-1001,2024-01-01 08:12,Ticket created
-TCK-1001,2024-01-01 08:25,Triage
-TCK-1001,2024-01-01 10:40,Assigned to agent
-TCK-1001,2024-01-02 14:10,Waiting for customer
-TCK-1001,2024-01-04 09:05,Agent response
-TCK-1001,2024-01-05 16:45,Ticket closed
+1001,2024-05-01 08:12:00,created
+1001,2024-05-01 08:45:00,assigned
+1001,2024-05-01 11:30:00,agent response
+1001,2024-05-02 09:15:00,waiting for customer
+1001,2024-05-04 14:20:00,customer response
+1001,2024-05-05 16:40:00,resolved
 
-TCK-1002,2024-01-01 09:03,Ticket created
-TCK-1002,2024-01-01 09:10,Triage
-TCK-1002,2024-01-01 11:55,Assigned to agent
-TCK-1002,2024-01-03 15:20,Waiting for customer
-TCK-1002,2024-01-06 10:00,Agent response
-TCK-1002,2024-01-07 17:30,Ticket closed
+1002,2024-05-01 09:05:00,created
+1002,2024-05-01 13:10:00,assigned
+1002,2024-05-02 10:30:00,agent response
+1002,2024-05-03 15:00:00,waiting for internal team
+1002,2024-05-06 11:45:00,resolved
 
-TCK-1003,2024-01-02 10:15,Ticket created
-TCK-1003,2024-01-02 10:18,Triage
-TCK-1003,2024-01-02 12:40,Assigned to agent
-TCK-1003,2024-01-03 09:10,Waiting for internal team
-TCK-1003,2024-01-05 14:00,Agent response
-TCK-1003,2024-01-05 18:10,Ticket closed
+1003,2024-05-02 10:22:00,created
+1003,2024-05-02 10:50:00,assigned
+1003,2024-05-02 11:05:00,agent response
+1003,2024-05-02 11:45:00,resolved
 
-TCK-1004,2024-01-03 11:45,Ticket created
-TCK-1004,2024-01-03 11:55,Triage
-TCK-1004,2024-01-03 15:30,Assigned to agent
-TCK-1004,2024-01-04 16:00,Waiting for customer
-TCK-1004,2024-01-08 09:40,Agent response
-TCK-1004,2024-01-09 13:25,Ticket closed
+1004,2024-05-03 08:30:00,created
+1004,2024-05-03 14:00:00,assigned
+1004,2024-05-04 09:10:00,agent response
+1004,2024-05-06 10:00:00,waiting for customer
+1004,2024-05-10 15:30:00,customer response
+1004,2024-05-12 16:45:00,resolved
 
-TCK-1005,2024-01-04 08:20,Ticket created
-TCK-1005,2024-01-04 08:30,Triage
-TCK-1005,2024-01-04 09:00,Assigned to agent
-TCK-1005,2024-01-04 11:15,Agent response
-TCK-1005,2024-01-04 11:45,Ticket closed
+1005,2024-05-05 11:15:00,created
+1005,2024-05-05 11:45:00,assigned
+1005,2024-05-05 12:10:00,agent response
+1005,2024-05-05 13:00:00,resolved
+
+1006,2024-05-06 09:00:00,created
+1006,2024-05-06 15:30:00,assigned
+1006,2024-05-07 11:00:00,agent response
+1006,2024-05-08 16:00:00,waiting for internal team
+1006,2024-05-11 14:00:00,resolved
+
+1007,2024-05-07 08:20:00,created
+1007,2024-05-07 12:00:00,assigned
+1007,2024-05-08 09:45:00,agent response
+1007,2024-05-09 17:30:00,resolved
+
+1008,2024-05-08 10:10:00,created
+1008,2024-05-08 16:40:00,assigned
+1008,2024-05-09 13:20:00,agent response
+1008,2024-05-11 09:00:00,waiting for customer
+1008,2024-05-14 15:10:00,customer response
+1008,2024-05-15 16:30:00,resolved
+
+1009,2024-05-09 09:45:00,created
+1009,2024-05-09 10:30:00,assigned
+1009,2024-05-09 11:15:00,agent response
+1009,2024-05-09 12:40:00,resolved
+
+1010,2024-05-10 08:55:00,created
+1010,2024-05-10 15:20:00,assigned
+1010,2024-05-11 10:10:00,agent response
+1010,2024-05-12 14:00:00,waiting for internal team
+1010,2024-05-15 17:20:00,resolved
