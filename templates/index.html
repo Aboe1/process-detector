@@ -1,58 +1,96 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Prolixia – App</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <style>
-    body { font-family: system-ui; margin:40px; color:#0f172a; }
-    .card { max-width:960px; padding:28px; border:1px solid #e5e7eb; border-radius:16px; }
-    .btn { padding:12px 18px; border-radius:10px; background:#2563eb; color:#fff; font-weight:800; text-decoration:none; }
-    .box { background:#f8fafc; padding:16px; border-radius:12px; margin-top:16px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
+    .card { max-width: 960px; padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px; background:#fff; }
+    .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
+    .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#2563eb; color:#fff; font-weight:800; text-decoration:none; }
+    .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .muted { color:#64748b; }
+    .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; margin-top:16px; }
+    hr { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
   </style>
 </head>
+
 <body>
-
 <div class="card">
-  <h1>Prolixia</h1>
-  <p class="muted">Support & SLA Intelligence</p>
 
-  {% if not active %}
-    <form method="post" action="/demo">
-      <button class="btn">▶️ Analyseer demo-data</button>
+  <div class="row" style="justify-content:space-between;">
+    <h1 style="margin:0;">Prolixia</h1>
+    <a href="/">← Landing</a>
+  </div>
+
+  <p class="muted">Support / SLA analyse: ontdek waar tickets blijven hangen.</p>
+
+  <!-- ================= DEMO RESULT ================= -->
+  {% if demo_used %}
+    <div class="box">
+      <b>✅ Demo gebruikt</b>
+
+      {% if metrics and metrics.sla %}
+        <p class="muted" style="margin-top:6px;">
+          Geschatte maandimpact:
+          <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b><br>
+          SLA-compliance:
+          <b>{{ metrics.sla.compliance_pct }}%</b>
+        </p>
+      {% endif %}
+
+      <div class="row" style="margin-top:12px;">
+        {% if last_demo_pdf %}
+          <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
+        {% endif %}
+        <a class="btn" href="#subscribe">Start abonnement →</a>
+      </div>
+    </div>
+    <hr>
+  {% endif %}
+
+  <!-- ================= SLA INTELLIGENCE PREVIEW ================= -->
+  {% if metrics and metrics.sla_by_type %}
+    <div class="box">
+      <b>📊 SLA Intelligence (preview)</b>
+
+      {% for t, v in metrics.sla_by_type.items() %}
+        <p class="muted" style="margin:6px 0;">
+          <b>{{ t.replace("_"," ").title() }}</b> —
+          Compliance: <b>{{ v.compliance_pct }}%</b> ·
+          Risico: <b>€{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}</b>/maand
+        </p>
+      {% endfor %}
+
+      {% if metrics.sla_trend_by_type %}
+        <p class="muted" style="margin-top:8px;">
+          📈 Trends t.o.v. vorige meting beschikbaar
+        </p>
+      {% endif %}
+
+      <a class="btn" style="margin-top:10px;" href="#subscribe">Upgrade naar Pro →</a>
+    </div>
+    <hr>
+  {% endif %}
+
+  <!-- ================= SUBSCRIBE ================= -->
+  <h3 id="subscribe">Start abonnement</h3>
+  <p class="muted">Analyseer je eigen data en ontvang PDF-rapporten.</p>
+
+  <div class="row">
+    <form method="post" action="/subscribe/basic">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn secondary" type="submit">Basic – €19 / maand</button>
     </form>
 
-    {% if metrics %}
-      <div class="box">
-        <b>SLA Intelligence</b>
-        <p class="muted">
-          Compliance: <b>{{ metrics.sla.compliance_pct }}%</b><br>
-          Risico: <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b> / maand
-        </p>
-      </div>
+    <form method="post" action="/subscribe/pro">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn" type="submit">Pro – €49 / maand</button>
+    </form>
+  </div>
 
-      {% if metrics.ai_advice %}
-        <div class="box">
-          <b>🤖 AI-advies</b>
-          <p class="muted">
-            {{ metrics.ai_advice[0].title }} →
-            <b>€{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}</b> / maand
-          </p>
-        </div>
-      {% endif %}
-
-      {% if metrics.sla_trend %}
-        <div class="box">
-          <b>📈 SLA-trend</b>
-          <p class="muted">
-            Compliance {{ metrics.sla_trend.compliance_delta_pp }} pp<br>
-            Risico €{{ "{:,.0f}".format(metrics.sla_trend.risk_delta_eur) }} / maand
-          </p>
-        </div>
-      {% endif %}
-    {% endif %}
 </div>
-
 </body>
 </html>
