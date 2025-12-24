@@ -11,13 +11,14 @@
     .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#2563eb; color:#fff; font-weight:800; text-decoration:none; display:inline-block; }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .btn.dark { background:#0f172a; }
+    .btn.blue { background:#2563eb; }
     .muted { color:#64748b; }
     input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
     a { color:#0f172a; text-decoration:none; }
     hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
     .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
     .box.warn { background:#fff7ed; border-color:#fed7aa; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:800; }
     .pill.high { background:#fee2e2; color:#991b1b; }
     .pill.med { background:#ffedd5; color:#9a3412; }
     .pill.low { background:#e0f2fe; color:#075985; }
@@ -35,15 +36,12 @@
     {% if demo_used %}
       <div class="box">
         <b>✅ Demo gebruikt</b>
+
         <div class="muted" style="margin-top:6px;">
-          {% if metrics and metrics.sla_by_type %}
-            {% set first = metrics.sla_by_type.get("first_response") %}
-            {% if first %}
-              SLA compliance (first response): <b>{{ first.compliance_pct }}%</b>
-              • Risico: <b>€{{ "{:,.0f}".format(first.monthly_risk_eur_est) }}</b> / maand
-            {% else %}
-              Bekijk je demo PDF voor de impact.
-            {% endif %}
+          {% if metrics and metrics.get("sla_by_type") and metrics.sla_by_type.get("first_response") %}
+            {% set fr = metrics.sla_by_type.get("first_response") %}
+            SLA compliance (first response): <b>{{ fr.compliance_pct }}%</b> •
+            Risico: <b>€{{ "{:,.0f}".format(fr.monthly_risk_eur_est) }}</b> / maand
           {% else %}
             Bekijk je demo PDF voor de impact.
           {% endif %}
@@ -53,16 +51,12 @@
           {% if last_demo_pdf %}
             <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
           {% endif %}
-          <a class="btn" href="#subscribe">Start abonnement →</a>
+          <a class="btn blue" href="#subscribe">Start abonnement →</a>
         </div>
       </div>
       <hr>
     {% endif %}
 
-    <!-- =========================
-         ACTIE VEREIST (UPGRADE)
-         Toon alleen als niet actief + metrics aanwezig
-         ========================= -->
     {% if (not active) and metrics and metrics.get("upgrade_signals") %}
       <div class="box warn">
         <div class="row" style="justify-content:space-between; align-items:flex-start;">
@@ -93,13 +87,11 @@
       <hr>
     {% endif %}
 
-    <!-- =========================
-         SLA PREVIEW (per type)
-         ========================= -->
     {% if metrics and metrics.get("sla_by_type") %}
       <div class="box">
         <b>📊 SLA Intelligence (per type)</b>
-        <div class="muted" style="margin-top:8px;">
+
+        <div class="muted" style="margin-top:10px;">
           {% for t, v in metrics.sla_by_type.items() %}
             <div style="margin:6px 0;">
               <b>{{ t.replace("_"," ").title() }}</b> —
@@ -113,7 +105,7 @@
           {% endfor %}
         </div>
 
-        {% if metrics.get("ai_advice") %}
+        {% if metrics.get("ai_advice") and metrics.ai_advice %}
           <div class="muted" style="margin-top:10px;">
             🤖 AI-advies: <b>{{ metrics.ai_advice[0].title }}</b>
             (≈ €{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}/maand)
@@ -121,45 +113,70 @@
         {% endif %}
 
         <div class="row" style="margin-top:12px;">
-          <a class="btn dark" href="/enterprise">Bekijk Enterprise →</a>
-          <a class="btn" href="#subscribe">Upgrade naar Pro →</a>
+          <a class="btn secondary" href="/enterprise">Bekijk Enterprise →</a>
+          <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
         </div>
       </div>
       <hr>
     {% endif %}
 
-    <!-- =========================
-         DEMO (als nog niet gebruikt)
-         ========================= -->
-    {% if not demo_used %}
+    {% if not active %}
       <h3>Probeer de demo</h3>
-      <form method="post" action="/demo">
-        <button class="btn" type="submit">▶️ Analyseer demo-data</button>
-      </form>
+
+      {% if not demo_used %}
+        <form method="post" action="/demo">
+          <button class="btn" type="submit">▶️ Analyseer demo-data</button>
+        </form>
+      {% else %}
+        <p class="muted">Demo is al gebruikt in deze browser.</p>
+      {% endif %}
+
       <hr>
+
+      <h3 id="subscribe">Start abonnement</h3>
+      <p class="muted">Analyseer je eigen data en ontvang PDF-rapporten.</p>
+
+      <div class="row">
+        <form method="post" action="/subscribe/basic">
+          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+          <button class="btn secondary" type="submit">Basic – €19 / maand</button>
+        </form>
+
+        <form method="post" action="/subscribe/pro">
+          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+          <button class="btn" type="submit">Pro – €49 / maand</button>
+        </form>
+      </div>
+
     {% else %}
-      <h3>Probeer de demo</h3>
-      <p class="muted">Demo is al gebruikt in deze browser.</p>
-      <hr>
+      <p>Welkom terug <b>{{ email }}</b> <span class="muted">({{ plan|upper }})</span></p>
+
+      <h3>Upload je CSV</h3>
+      <form id="uploadForm" class="row">
+        <input type="file" name="file" accept=".csv,text/csv" required />
+        <input type="number" name="rate" min="1" step="1" value="60" />
+        <button class="btn" type="submit">Analyseer & genereer PDF</button>
+      </form>
+
+      <p id="msg" class="muted"></p>
+
+      <script>
+        document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const res = await fetch("/upload", { method: "POST", body: fd });
+
+          let data = {};
+          try { data = await res.json(); } catch (err) {}
+
+          if (res.ok && data.filename) {
+            window.location = "/download/" + encodeURIComponent(data.filename);
+          } else {
+            document.getElementById("msg").textContent = "Upload mislukt. Controleer je CSV en probeer opnieuw.";
+          }
+        });
+      </script>
     {% endif %}
-
-    <!-- =========================
-         SUBSCRIBE
-         ========================= -->
-    <h3 id="subscribe">Start abonnement</h3>
-    <p class="muted">Analyseer je eigen data en ontvang PDF-rapporten.</p>
-
-    <div class="row">
-      <form method="post" action="/subscribe/basic">
-        <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-        <button class="btn secondary" type="submit">Basic – €19 / maand</button>
-      </form>
-
-      <form method="post" action="/subscribe/pro">
-        <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-        <button class="btn" type="submit">Pro – €49 / maand</button>
-      </form>
-    </div>
 
   </div>
 </body>
