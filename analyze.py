@@ -1,4 +1,5 @@
-# analyze.py — Prolixia (SLA Intelligence + AI + Trends + Trendgrafieken)
+# analyze.py — Prolixia
+# SLA Intelligence + AI Advice + Trends + Trendgrafieken + Trend per SLA-type
 
 import sys, json, shutil
 import pandas as pd
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer,
-    Table, TableStyle, PageBreak
+    PageBreak
 )
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
@@ -30,7 +31,6 @@ output_pdf = sys.argv[2] if len(sys.argv) > 2 else "process_report.pdf"
 BASE = Path(__file__).resolve().parent
 UPLOAD = BASE / "uploads"
 DATA = BASE / "data"
-ASSETS = BASE / "assets"
 
 UPLOAD.mkdir(exist_ok=True)
 DATA.mkdir(exist_ok=True)
@@ -39,72 +39,40 @@ CSV = UPLOAD / "events.csv"
 OUT = UPLOAD / output_pdf
 
 LAST = UPLOAD / "last_metrics.json"
-PREV = UPLOAD / "previous_metrics.json"
 HISTORY = DATA / "metrics_history.json"
-LOGO = ASSETS / "logo.png"
 
 # ===============================
 # HELPERS
 # ===============================
 def rj(p):
     if not p.exists():
-        return None
+        return []
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return []
 
 def wj(p, d):
     p.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
-
-def roll():
-    if LAST.exists():
-        try:
-            shutil.copyfile(LAST, PREV)
-        except Exception:
-            pass
 
 def fe(x): return f"€{x:,.0f}".replace(",", ".")
 def fp(x): return f"{x:.1f}%".replace(".", ",")
 
 # ===============================
-# AI RULES
+# SLA TYPE MAPPING
 # ===============================
-AI_RULES = [
-    {
-        "title": "Versnel eerste reactie",
-        "keywords": ["assigned", "created", "response"],
-        "actions": [
-            "Stel SLA < 2 uur in",
-            "Activeer automatische tickettoewijzing",
-            "Monitor piekbelasting per kanaal"
-        ],
-        "reduction": 0.25
-    },
-    {
-        "title": "Verkort oplostijd",
-        "keywords": ["resolved", "closed"],
-        "actions": [
-            "Escalatie na 24 uur",
-            "Splits complexe tickets",
-            "Analyseer herhaalproblemen"
-        ],
-        "reduction": 0.30
-    },
-    {
-        "title": "Beperk wachttijd",
-        "keywords": ["waiting"],
-        "actions": [
-            "Pauzeer SLA bij wachten op klant",
-            "Automatische reminders",
-            "Sluit inactieve tickets"
-        ],
-        "reduction": 0.40
-    }
-]
+def sla_type(event: str) -> str:
+    e = event.lower()
+    if "assign" in e or "created" in e or "response" in e:
+        return "first_response"
+    if "resolved" in e or "closed" in e:
+        return "resolution"
+    if "waiting" in e:
+        return "waiting"
+    return "other"
 
 # ===============================
-# CSV LOAD
+# LOAD CSV
 # ===============================
 if not CSV.exists():
     raise FileNotFoundError("uploads/events.csv ontbreekt")
@@ -120,87 +88,81 @@ df["dur_h"] = (df["next_ts"] - df["timestamp"]).dt.total_seconds() / 3600
 df = df.dropna(subset=["dur_h"])
 df = df[df["dur_h"] >= 0]
 
+df["sla_type"] = df["event"].apply(sla_type)
+
 period_hours = (df["timestamp"].max() - df["timestamp"].min()).total_seconds() / 3600
 can_extrapolate = period_hours >= 1
 
 # ===============================
-# BASELINE + IMPACT
+# BASELINE + SLA
 # ===============================
 baseline = df.groupby("event")["dur_h"].median()
 df["baseline"] = df["event"].map(baseline)
-df["impact_h"] = (df["dur_h"] - df["baseline"]).clip(lower=0)
-df["impact_eur"] = df["impact_h"] * eur_per_hour
-
-total_impact_eur = df["impact_eur"].sum()
-
-# ===============================
-# SLA
-# ===============================
 df["sla_breach"] = df["dur_h"] > (df["baseline"] * 1.2)
-steps = len(df)
-breaches = int(df["sla_breach"].sum())
-compliance = 100 * (steps - breaches) / steps if steps else 0
-
-sla_risk = df.loc[df["sla_breach"], "impact_eur"].sum()
-monthly_risk = sla_risk * (720 / period_hours) if can_extrapolate else sla_risk
+df["impact_eur"] = (df["dur_h"] - df["baseline"]).clip(lower=0) * eur_per_hour
 
 # ===============================
-# AI ADVICE
+# SLA METRICS PER TYPE
 # ===============================
-ai_advice = []
-for rule in AI_RULES:
-    if any(df["event"].str.contains(k, case=False).any() for k in rule["keywords"]):
-        reduction = monthly_risk * rule["reduction"]
-        if reduction > 0:
-            ai_advice.append({
-                "title": rule["title"],
-                "actions": rule["actions"],
-                "monthly_risk_reduction_est": round(reduction, 0)
-            })
-ai_advice = ai_advice[:3]
+sla_by_type = {}
+
+for t in ["first_response", "resolution", "waiting"]:
+    sub = df[df["sla_type"] == t]
+    if sub.empty:
+        continue
+
+    steps = len(sub)
+    breaches = int(sub["sla_breach"].sum())
+    compliance = 100 * (steps - breaches) / steps if steps else 0
+
+    risk = sub.loc[sub["sla_breach"], "impact_eur"].sum()
+    monthly_risk = risk * (720 / period_hours) if can_extrapolate else risk
+
+    sla_by_type[t] = {
+        "compliance_pct": round(compliance, 1),
+        "monthly_risk_eur_est": round(monthly_risk, 0),
+    }
 
 # ===============================
-# METRICS SAVE
+# SAVE METRICS + HISTORY
 # ===============================
-roll()
-
 metrics = {
     "generated_at": datetime.now(timezone.utc).isoformat(),
-    "sla": {
-        "compliance_pct": round(compliance, 1),
-        "monthly_risk_eur_est": round(monthly_risk, 0)
-    },
-    "ai_advice": ai_advice
+    "sla_by_type": sla_by_type
 }
 
 wj(LAST, metrics)
 
-# ===============================
-# HISTORY (TRENDS)
-# ===============================
-history = rj(HISTORY) or []
-history.append({
-    "generated_at": metrics["generated_at"],
-    "sla": metrics["sla"]
-})
+history = rj(HISTORY)
+history.append(metrics)
 wj(HISTORY, history)
 
-trend = None
+# ===============================
+# TREND DATA PER TYPE
+# ===============================
+trend_by_type = {}
+
 if len(history) >= 2:
-    prev, cur = history[-2], history[-1]
-    trend = {
-        "compliance_delta_pp": round(
-            cur["sla"]["compliance_pct"] - prev["sla"]["compliance_pct"], 1
-        ),
-        "risk_delta_eur": round(
-            cur["sla"]["monthly_risk_eur_est"] - prev["sla"]["monthly_risk_eur_est"], 0
-        )
-    }
-metrics["sla_trend"] = trend
+    prev = history[-2]["sla_by_type"]
+    curr = history[-1]["sla_by_type"]
+
+    for t in curr:
+        if t not in prev:
+            continue
+        trend_by_type[t] = {
+            "compliance_delta_pp": round(
+                curr[t]["compliance_pct"] - prev[t]["compliance_pct"], 1
+            ),
+            "risk_delta_eur": round(
+                curr[t]["monthly_risk_eur_est"] - prev[t]["monthly_risk_eur_est"], 0
+            ),
+        }
+
+metrics["sla_trend_by_type"] = trend_by_type
 wj(LAST, metrics)
 
 # ===============================
-# TREND GRAPH (LINE)
+# TREND GRAPH HELPER
 # ===============================
 class DrawingFlowable(Flowable):
     def __init__(self, drawing):
@@ -213,13 +175,13 @@ class DrawingFlowable(Flowable):
         from reportlab.graphics import renderPDF
         renderPDF.draw(self.drawing, self.canv, 0, 0)
 
-def make_line_chart(points, title, value_fmt="{:.1f}", suffix=""):
-    w, h = 520, 300
+def make_line_chart(points, title, suffix="", fmt="{:.1f}"):
+    w, h = 520, 260
     d = Drawing(w, h)
     d.add(String(0, h - 16, title, fontName="Helvetica-Bold", fontSize=13))
 
     if len(points) < 2:
-        d.add(String(0, h - 40, "Nog onvoldoende data voor trendgrafiek.", fontSize=10))
+        d.add(String(0, h - 40, "Nog onvoldoende data.", fontSize=10))
         return d
 
     vals = [v for _, v in points]
@@ -236,7 +198,7 @@ def make_line_chart(points, title, value_fmt="{:.1f}", suffix=""):
         x = left + i * step
         y = bottom + (val - min_v) / (max_v - min_v) * (top - bottom)
         d.add(String(x - 10, bottom - 15, label, fontSize=8))
-        d.add(String(x - 10, y + 5, value_fmt.format(val) + suffix, fontSize=8))
+        d.add(String(x - 10, y + 5, fmt.format(val) + suffix, fontSize=8))
         if prev:
             d.add(Rect(prev[0], prev[1], x - prev[0], 1.5,
                        fillColor=colors.HexColor("#2563eb"), strokeColor=None))
@@ -247,38 +209,39 @@ def make_line_chart(points, title, value_fmt="{:.1f}", suffix=""):
 # PDF
 # ===============================
 styles = getSampleStyleSheet()
-doc = SimpleDocTemplate(str(OUT), pagesize=A4, rightMargin=36, leftMargin=36, topMargin=72, bottomMargin=36)
+doc = SimpleDocTemplate(str(OUT), pagesize=A4,
+                        rightMargin=36, leftMargin=36,
+                        topMargin=72, bottomMargin=36)
 els = []
 
-els.append(Paragraph("<b>Prolixia – Support SLA Analyse</b>", styles["Title"]))
-els.append(Spacer(1, 8))
-els.append(Paragraph(f"SLA-compliance: <b>{fp(compliance)}</b>", styles["Normal"]))
-els.append(Paragraph(f"Maandelijks SLA-risico: <b>{fe(monthly_risk)}</b>", styles["Normal"]))
-els.append(Spacer(1, 10))
-
-els.append(Paragraph("<b>AI-gestuurde verbeteracties</b>", styles["Heading2"]))
-for a in ai_advice:
-    els.append(Paragraph(f"<b>{a['title']}</b> – ~{fe(a['monthly_risk_reduction_est'])}/maand", styles["Normal"]))
-    for act in a["actions"]:
-        els.append(Paragraph(f"• {act}", styles["Normal"]))
-    els.append(Spacer(1, 6))
-
-if trend:
-    els.append(Spacer(1, 12))
-    els.append(Paragraph("<b>SLA-ontwikkeling</b>", styles["Heading2"]))
-    els.append(Paragraph(f"Compliance verandering: <b>{trend['compliance_delta_pp']:+.1f} pp</b>", styles["Normal"]))
-    els.append(Paragraph(f"Risico verandering: <b>{fe(trend['risk_delta_eur'])}/maand</b>", styles["Normal"]))
-
-els.append(PageBreak())
-els.append(Paragraph("<b>SLA-trends over tijd</b>", styles["Title"]))
+els.append(Paragraph("<b>Prolixia – SLA Trends per type</b>", styles["Title"]))
 els.append(Spacer(1, 12))
 
-pts_comp = [(f"T{i+1}", h["sla"]["compliance_pct"]) for i, h in enumerate(history[-6:])]
-pts_risk = [(f"T{i+1}", h["sla"]["monthly_risk_eur_est"]) for i, h in enumerate(history[-6:])]
+for t, vals in sla_by_type.items():
+    els.append(Paragraph(f"<b>{t.replace('_',' ').title()}</b>", styles["Heading2"]))
+    els.append(Paragraph(
+        f"Compliance: <b>{fp(vals['compliance_pct'])}</b> • "
+        f"Risico: <b>{fe(vals['monthly_risk_eur_est'])}/maand</b>",
+        styles["Normal"]
+    ))
 
-els.append(DrawingFlowable(make_line_chart(pts_comp, "SLA-compliance (%)", "{:.1f}", "%")))
-els.append(Spacer(1, 16))
-els.append(DrawingFlowable(make_line_chart(pts_risk, "Maandelijks SLA-risico (€)", "{:.0f}", "€")))
+    # trend chart
+    pts = []
+    for i, h in enumerate(history[-6:]):
+        if t in h["sla_by_type"]:
+            pts.append((f"T{i+1}", h["sla_by_type"][t]["compliance_pct"]))
+
+    els.append(Spacer(1, 8))
+    els.append(DrawingFlowable(
+        make_line_chart(
+            pts,
+            f"Compliance trend — {t.replace('_',' ')}",
+            "%",
+            "{:.1f}"
+        )
+    ))
+    els.append(Spacer(1, 14))
 
 doc.build(els)
+
 print("PDF generated:", OUT)
