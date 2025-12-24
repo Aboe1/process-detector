@@ -8,7 +8,6 @@
     body { font-family: system-ui; margin:40px; color:#0f172a; }
     .card { max-width:960px; padding:28px; border:1px solid #e5e7eb; border-radius:16px; }
     .btn { padding:12px 18px; border-radius:10px; background:#2563eb; color:#fff; font-weight:800; text-decoration:none; }
-    .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .box { background:#f8fafc; padding:16px; border-radius:12px; margin-top:16px; }
     .muted { color:#64748b; }
   </style>
@@ -26,7 +25,7 @@
 
     {% if metrics %}
       <div class="box">
-        <b>SLA Intelligence (preview)</b>
+        <b>SLA Intelligence</b>
         <p class="muted">
           Compliance: <b>{{ metrics.sla.compliance_pct }}%</b><br>
           Risico: <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b> / maand
@@ -37,9 +36,8 @@
         <div class="box">
           <b>🤖 AI-advies</b>
           <p class="muted">
-            {{ metrics.ai_advice[0].title }} kan
-            <b>€{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}</b>
-            per maand besparen.
+            {{ metrics.ai_advice[0].title }} →
+            <b>€{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}</b> / maand
           </p>
         </div>
       {% endif %}
@@ -54,10 +52,6 @@
         </div>
       {% endif %}
     {% endif %}
-
-  {% else %}
-    <p>Upload je CSV om een rapport te maken.</p>
-  {% endif %}
 </div>
 
 </body>
