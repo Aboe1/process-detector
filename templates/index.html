@@ -1,121 +1,64 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="UTF-8">
   <title>Prolixia – App</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: system-ui, sans-serif; margin:40px; color:#0f172a; }
+    body { font-family: system-ui; margin:40px; color:#0f172a; }
     .card { max-width:960px; padding:28px; border:1px solid #e5e7eb; border-radius:16px; }
-    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-    .btn { padding:12px 18px; border-radius:10px; font-weight:800; background:#0f172a; color:#fff; text-decoration:none; }
-    .btn.blue { background:#2563eb; }
+    .btn { padding:12px 18px; border-radius:10px; background:#2563eb; color:#fff; font-weight:800; text-decoration:none; }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
-    .box { background:#f8fafc; padding:16px; border-radius:12px; border:1px solid #e2e8f0; }
+    .box { background:#f8fafc; padding:16px; border-radius:12px; margin-top:16px; }
     .muted { color:#64748b; }
-    hr { margin:24px 0; border:none; border-top:1px solid #e5e7eb; }
-    input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
   </style>
 </head>
-
 <body>
+
 <div class="card">
-
-  <div class="row" style="justify-content:space-between">
-    <h1>Prolixia</h1>
-    <a href="/">← Landing</a>
-  </div>
-
-  <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
+  <h1>Prolixia</h1>
+  <p class="muted">Support & SLA Intelligence</p>
 
   {% if not active %}
+    <form method="post" action="/demo">
+      <button class="btn">▶️ Analyseer demo-data</button>
+    </form>
 
-    {% if not demo_used %}
-      <h3>Probeer de demo</h3>
-      <form method="post" action="/demo">
-        <button class="btn blue">▶️ Analyseer demo-data</button>
-      </form>
-      <hr>
-    {% endif %}
-
-    {% if demo_used %}
+    {% if metrics %}
       <div class="box">
-        <b>✅ Demo gebruikt</b>
-
-        {% if roi_month_eur %}
-          <p class="muted">
-            Geschatte maandimpact:
-            <b>€{{ "{:,.0f}".format(roi_month_eur) }}</b>
-          </p>
-        {% endif %}
-
-        <div class="row">
-          <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
-          <a class="btn blue" href="#subscribe">Start abonnement →</a>
-        </div>
+        <b>SLA Intelligence (preview)</b>
+        <p class="muted">
+          Compliance: <b>{{ metrics.sla.compliance_pct }}%</b><br>
+          Risico: <b>€{{ "{:,.0f}".format(metrics.sla.monthly_risk_eur_est) }}</b> / maand
+        </p>
       </div>
 
-      {% if metrics and metrics.get("sla") %}
-        <div class="box" style="margin-top:16px;">
-          <b>📊 SLA Intelligence (preview)</b>
-
+      {% if metrics.ai_advice %}
+        <div class="box">
+          <b>🤖 AI-advies</b>
           <p class="muted">
-            SLA-compliance:
-            <b>{{ "{:.1f}".format(metrics["sla"]["compliance_pct"]).replace('.', ',') }}%</b>
-            • Risico:
-            <b>€{{ "{:,.0f}".format(metrics["sla"]["monthly_risk_eur_est"]) }}</b> / maand
+            {{ metrics.ai_advice[0].title }} kan
+            <b>€{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}</b>
+            per maand besparen.
           </p>
-
-          <a class="btn blue" href="/enterprise">Bekijk Enterprise →</a>
         </div>
       {% endif %}
 
-      <hr>
+      {% if metrics.sla_trend %}
+        <div class="box">
+          <b>📈 SLA-trend</b>
+          <p class="muted">
+            Compliance {{ metrics.sla_trend.compliance_delta_pp }} pp<br>
+            Risico €{{ "{:,.0f}".format(metrics.sla_trend.risk_delta_eur) }} / maand
+          </p>
+        </div>
+      {% endif %}
     {% endif %}
 
-    <h3 id="subscribe">Start abonnement</h3>
-    <div class="row">
-      <form method="post" action="/subscribe/basic">
-        <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
-        <button class="btn secondary">Basic – €19 / maand</button>
-      </form>
-
-      <form method="post" action="/subscribe/pro">
-        <input type="email" name="email" placeholder="jij@bedrijf.nl" required>
-        <button class="btn">Pro – €49 / maand</button>
-      </form>
-    </div>
-
   {% else %}
-    <p>Welkom terug <b>{{ email }}</b> <span class="muted">({{ plan|upper }})</span></p>
-
-    <h3>Upload je CSV</h3>
-    <form id="uploadForm" class="row">
-      <input type="file" name="file" required>
-      <input type="number" name="rate" value="60" min="1">
-      <button class="btn">Analyseer & genereer PDF</button>
-    </form>
-
-    <p id="msg" class="muted"></p>
+    <p>Upload je CSV om een rapport te maken.</p>
   {% endif %}
 </div>
 
-{% if active %}
-<script>
-  document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const res = await fetch("/upload", { method: "POST", body: fd });
-    let data = {};
-    try { data = await res.json(); } catch {}
-    if (res.ok && data.filename) {
-      window.location = "/download/" + data.filename;
-    } else {
-      document.getElementById("msg").textContent = "Upload mislukt.";
-    }
-  });
-</script>
-{% endif %}
 </body>
 </html>
