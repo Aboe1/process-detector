@@ -15,7 +15,7 @@
         header {
             background: #0f172a;
             color: white;
-            padding: 48px 24px;
+            padding: 56px 24px;
             text-align: center;
         }
         section {
@@ -33,8 +33,10 @@
             background: #2563eb;
             color: white;
             text-decoration: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-weight: bold;
+            border: none;
+            cursor: pointer;
         }
         .cta.secondary {
             background: #e5e7eb;
@@ -49,7 +51,7 @@
         }
         .card {
             background: white;
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 24px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.06);
         }
@@ -65,6 +67,7 @@
             padding: 24px;
             font-size: 14px;
         }
+        form { display:inline; }
     </style>
 </head>
 
@@ -77,7 +80,11 @@
         <b>waar SLA’s worden overschreden en uren weglekken</b>.
     </p>
 
-    <a class="cta" href="/app">Bekijk demo-analyse</a>
+    <!-- 🔥 DEMO DIRECT VANAF LANDING -->
+    <form method="post" action="/demo">
+        <button class="cta" type="submit">▶️ Bekijk demo-analyse</button>
+    </form>
+
     <a class="cta secondary" href="/app">Start met eigen data</a>
 </header>
 
@@ -88,15 +95,14 @@
         <div class="card">
             <h3>⏱ Structurele wachttijden</h3>
             <p>
-                Ontdek welke statussen (zoals <i>Waiting for customer</i>)
-                structureel te lang duren.
+                Ontdek welke statussen structureel te lang duren.
             </p>
         </div>
 
         <div class="card">
             <h3>💶 Financiële impact</h3>
             <p>
-                Elke vertraging wordt omgerekend naar
+                Elke vertraging omgerekend naar
                 <b>uren en euro’s</b>.
             </p>
         </div>
@@ -104,16 +110,14 @@
         <div class="card">
             <h3>📊 Managementsamenvatting</h3>
             <p>
-                Heldere KPI’s: maandimpact, FTE-verlies
-                en besparingsscenario’s.
+                Heldere KPI’s voor MT en directie.
             </p>
         </div>
 
         <div class="card">
             <h3>🧭 Concrete acties</h3>
             <p>
-                Geen dashboards om te interpreteren,
-                maar <b>directe aanbevelingen</b>.
+                Direct toepasbare verbeterpunten.
             </p>
         </div>
     </div>
@@ -124,50 +128,30 @@
 
     <div class="grid">
         <div class="card">
-            <div class="highlight">€13.000+</div>
-            <p>Gemiddelde maandimpact bij middelgrote supportteams</p>
+            <div class="highlight">€10k+</div>
+            <p>Gemiddelde maandimpact</p>
         </div>
 
         <div class="card">
-            <div class="highlight">1.4 FTE</div>
-            <p>Verborgen capaciteitsverlies door wachttijden</p>
+            <div class="highlight">1–2 FTE</div>
+            <p>Verborgen capaciteitsverlies</p>
         </div>
 
         <div class="card">
             <div class="highlight">20%</div>
-            <p>Realistische besparing binnen 90 dagen</p>
-        </div>
-    </div>
-</section>
-
-<section>
-    <h2>Zo werkt het</h2>
-
-    <div class="grid">
-        <div class="card">
-            <h3>1. Upload je ticket-export</h3>
-            <p>CSV uit Zendesk, Freshdesk, Jira, etc.</p>
-        </div>
-
-        <div class="card">
-            <h3>2. Analyse in seconden</h3>
-            <p>Geen configuratie of modellen nodig.</p>
-        </div>
-
-        <div class="card">
-            <h3>3. PDF voor management</h3>
-            <p>Klaar om te delen met MT of directie.</p>
+            <p>Besparing binnen 90 dagen</p>
         </div>
     </div>
 </section>
 
 <section style="text-align:center">
     <h2>Klaar om inzicht te krijgen?</h2>
-    <p>
-        Probeer de demo of upload direct je eigen data.
-    </p>
+    <p>Bekijk eerst de demo of upload direct je eigen data.</p>
 
-    <a class="cta" href="/app">Bekijk demo</a>
+    <form method="post" action="/demo">
+        <button class="cta" type="submit">▶️ Start demo-analyse</button>
+    </form>
+
     <a class="cta secondary" href="/app">Start abonnement</a>
 </section>
 
