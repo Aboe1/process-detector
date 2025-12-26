@@ -1,66 +1,202 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
-  <title>Prolixia – SLA Intelligence</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Prolixia – App</title>
   <style>
-    body { font-family: system-ui; margin:40px; background:#f8fafc; }
-    .card { max-width:960px; margin:auto; background:#fff; padding:28px; border-radius:16px; }
-    .box { background:#f1f5f9; padding:16px; border-radius:12px; margin-bottom:16px; }
-    .warn { background:#fff7ed; }
-    .btn { padding:12px 18px; background:#2563eb; color:#fff; border-radius:10px; text-decoration:none; font-weight:700; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
+    .card { max-width: 960px; padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px; background:#fff; }
+    .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
+    .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; text-decoration:none; display:inline-block; }
+    .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
+    .btn.blue { background:#2563eb; }
+    .btn.red { background:#dc2626; }
     .muted { color:#64748b; }
+    input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
+    a { color:#0f172a; text-decoration:none; }
+    hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
+    .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
+    .box.warn { background:#fff7ed; border-color:#fed7aa; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:800; }
+    .pill.high { background:#fee2e2; color:#991b1b; }
+    .pill.med { background:#ffedd5; color:#9a3412; }
+    .pill.low { background:#e0f2fe; color:#075985; }
   </style>
 </head>
 <body>
-<div class="card">
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <h1 style="margin:0;">Prolixia</h1>
+      <a href="/">← Landing</a>
+    </div>
 
-<h1>Prolixia</h1>
-<p class="muted">Support & SLA Intelligence</p>
+    <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
 
-{% if metrics and metrics.upgrade_signals and not active %}
-<div class="box warn">
-  <b>⚠️ Actie vereist: structureel SLA-risico</b>
-  <ul>
-    {% for s in metrics.upgrade_signals %}
-      <li>{{ s.message }}</li>
-    {% endfor %}
-  </ul>
-  <a class="btn" href="#subscribe">Bekijk volledige trends →</a>
-</div>
-{% endif %}
+    {% if demo_used %}
+      <div class="box">
+        <b>✅ Demo gebruikt</b>
+        <div class="muted" style="margin-top:6px;">
+          {% if metrics and metrics.get("monthly_eur_est") %}
+            Geschatte maandimpact: <b>€{{ "{:,.0f}".format(metrics.monthly_eur_est) }}</b>
+            {% if metrics.get("yearly_eur_est") %} • Jaarimpact: <b>€{{ "{:,.0f}".format(metrics.yearly_eur_est) }}</b>{% endif %}
+          {% else %}
+            Bekijk je demo PDF voor de impact.
+          {% endif %}
+        </div>
 
-{% if metrics and metrics.sla_by_type %}
-<div class="box">
-  <b>📊 SLA Intelligence per type</b>
-  {% for t, v in metrics.sla_by_type.items() %}
-    <p>
-      {{ t.replace("_"," ").title() }} —
-      Compliance <b>{{ v.compliance_pct }}%</b>,
-      Risico <b>€{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}</b>/maand
-    </p>
-  {% endfor %}
-</div>
-{% endif %}
+        <div class="row" style="margin-top:12px;">
+          {% if last_demo_pdf %}
+            <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
+          {% endif %}
+          <a class="btn blue" href="#subscribe">Start abonnement →</a>
+        </div>
+      </div>
+      <hr>
+    {% endif %}
 
-{% if metrics.ai_advice %}
-<div class="box">
-  <b>🤖 AI-gestuurde aanbeveling</b><br>
-  {{ metrics.ai_advice[0].summary }}<br>
-  <b>Geschatte besparing:</b>
-  €{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }}/maand
-</div>
-{% endif %}
+    <!-- ✅ NEW: Actie vereist (NL) -->
+    {% if (not active) and metrics and metrics.get("upgrade_signals") %}
+      <div class="box warn">
+        <div class="row" style="justify-content:space-between; align-items:flex-start;">
+          <div>
+            <b>⚠️ Actie vereist: structureel SLA-risico</b>
+            <div class="muted" style="margin-top:6px;">
+              Op basis van de geanalyseerde supportdata zijn één of meerdere structurele SLA-risico’s vastgesteld.
+            </div>
+          </div>
+          <a class="btn blue" href="#subscribe">Bekijk volledige trends →</a>
+        </div>
 
-<hr>
+        <div style="margin-top:10px;">
+          {% for s in metrics.upgrade_signals %}
+            <div class="muted" style="margin:8px 0;">
+              {% if s.severity == "high" %}
+                <span class="pill high">HOOG</span>
+              {% elif s.severity == "medium" %}
+                <span class="pill med">MIDDEL</span>
+              {% else %}
+                <span class="pill low">LAAG</span>
+              {% endif %}
+              &nbsp; {{ s.message }}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <hr>
+    {% endif %}
 
-<h3 id="subscribe">Start abonnement</h3>
-<form method="post" action="/subscribe/pro">
-  <input name="email" required placeholder="jij@bedrijf.nl">
-  <button class="btn">Upgrade naar Pro</button>
-</form>
+    <!-- ✅ NEW: SLA Intelligence per type -->
+    {% if metrics and metrics.get("sla_by_type") %}
+      <div class="box">
+        <b>📊 SLA Intelligence per processtap</b>
+        <div class="muted" style="margin-top:6px;">
+          Dit overzicht toont per SLA-type de mate van naleving en de bijbehorende financiële impact.
+        </div>
 
-</div>
+        <div class="muted" style="margin-top:10px;">
+          {% for t, v in metrics.sla_by_type.items() %}
+            <div style="margin:6px 0;">
+              <b>{{ t.replace("_"," ").title() }}</b> —
+              Compliance: <b>{{ v.compliance_pct }}%</b> ·
+              Risico: <b>€{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}</b>/maand
+              {% if metrics.get("sla_trend_by_type") and metrics.sla_trend_by_type.get(t) %}
+                {% set tr = metrics.sla_trend_by_type.get(t) %}
+                · Trend: <b>{{ tr.compliance_delta_pp }} pp</b>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+
+        {% if metrics.get("ai_advice") and metrics.ai_advice %}
+          <div class="muted" style="margin-top:10px;">
+            <b>AI-gestuurde verbeteraanbeveling</b><br>
+            {{ metrics.ai_advice[0].summary }}<br>
+            <b>Geschatte besparing:</b>
+            €{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }} per maand
+          </div>
+        {% endif %}
+
+        <div class="row" style="margin-top:12px;">
+          <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
+        </div>
+      </div>
+      <hr>
+    {% endif %}
+
+    {% if not active %}
+      <h3>Probeer de demo</h3>
+
+      {% if not demo_used %}
+        <form method="post" action="/demo">
+          <button class="btn" type="submit">▶️ Analyseer demo-data</button>
+        </form>
+      {% else %}
+        <p class="muted">Demo is al gebruikt in deze browser.</p>
+      {% endif %}
+
+      <hr>
+
+      <h3 id="subscribe">Start abonnement</h3>
+      <p class="muted">Analyseer je eigen data en ontvang PDF-rapporten.</p>
+
+      <div class="row">
+        <form method="post" action="/subscribe/basic">
+          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+          <button class="btn secondary" type="submit">Basic – €19 / maand</button>
+        </form>
+
+        <form method="post" action="/subscribe/pro">
+          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+          <button class="btn" type="submit">Pro – €49 / maand</button>
+        </form>
+      </div>
+
+      <div class="box" style="margin-top:18px;">
+        <b>Lievere een korte demo call?</b>
+        <p class="muted" style="margin:6px 0 0;">
+          Mail ons en stuur (optioneel) een voorbeeld-CSV. We laten in 10 minuten zien waar je SLA-tijd verdwijnt.
+        </p>
+        <div class="row" style="margin-top:12px;">
+          <a class="btn secondary"
+             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20wil%20graag%20een%20korte%20demo%20van%20Prolixia.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%20(Zendesk%2FJira%2Fetc.)%3A%20%0A%0AGroet%2C%0A">
+            Plan demo via e-mail
+          </a>
+        </div>
+      </div>
+
+    {% else %}
+      <p>Welkom terug <b>{{ email }}</b> <span class="muted">({{ plan|upper }})</span></p>
+
+      <h3>Upload je CSV</h3>
+      <form id="uploadForm" class="row">
+        <input type="file" name="file" accept=".csv,text/csv" required />
+        <input type="number" name="rate" min="1" step="1" value="60" />
+        <button class="btn" type="submit">Analyseer & genereer PDF</button>
+      </form>
+
+      <p id="msg" class="muted"></p>
+    {% endif %}
+  </div>
+
+  {% if active %}
+  <script>
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+
+      const res = await fetch("/upload", { method: "POST", body: fd });
+
+      let data = {};
+      try { data = await res.json(); } catch (err) {}
+
+      if (res.ok && data.filename) {
+        window.location = "/download/" + encodeURIComponent(data.filename);
+      } else {
+        document.getElementById("msg").textContent = "Upload mislukt. Controleer je CSV en probeer opnieuw.";
+      }
+    });
+  </script>
+  {% endif %}
 </body>
 </html>
