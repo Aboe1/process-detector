@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8">
-  <title>Prolixia — Support SLA Intelligence</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Prolixia – App</title>
 
   <style>
     :root {
@@ -13,208 +13,340 @@
       --text: #0f172a;
       --muted: #64748b;
       --primary: #2563eb;
+      --good: #16a34a;
+      --avg: #f59e0b;
+      --bad: #dc2626;
     }
 
     body {
-      margin: 0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 40px;
       background: var(--bg);
       color: var(--text);
-    }
-
-    /* ===== HERO ===== */
-    header {
-      padding: 96px 24px 80px;
-      text-align: center;
-      background:
-        radial-gradient(1200px 400px at 50% -200px, #dbeafe 0%, transparent 60%),
-        linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%);
-    }
-
-    h1 {
-      font-size: 46px;
-      max-width: 900px;
-      margin: 0 auto;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-    }
-
-    header p {
-      margin-top: 22px;
-      font-size: 18px;
-      color: var(--muted);
-      max-width: 720px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .cta {
-      display: inline-block;
-      margin-top: 32px;
-      padding: 14px 28px;
-      border-radius: 14px;
-      font-weight: 800;
-      text-decoration: none;
-      background: var(--primary);
-      color: white;
-    }
-
-    .cta.secondary {
-      background: transparent;
-      color: var(--text);
-      border: 2px solid var(--border);
-      margin-left: 12px;
-    }
-
-    /* ===== SECTIONS ===== */
-    section {
-      max-width: 1100px;
-      margin: auto;
-      padding: 80px 24px;
-    }
-
-    h2 {
-      text-align: center;
-      font-size: 34px;
-      margin-bottom: 14px;
-      letter-spacing: -0.01em;
-    }
-
-    .sub {
-      text-align: center;
-      color: var(--muted);
-      max-width: 640px;
-      margin: 0 auto 56px;
-      font-size: 17px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 28px;
+      scroll-behavior:smooth;
     }
 
     .card {
+      max-width: 1040px;
+      margin: auto;
       background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 30px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.06);
+      padding: 36px;
+      border-radius: 22px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.06);
     }
 
-    .card h3 {
-      margin-top: 0;
-      font-size: 18px;
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+    .muted { color: var(--muted); }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 36px 0;
     }
 
-    .highlight {
-      font-size: 36px;
-      font-weight: 800;
-      color: var(--primary);
-      letter-spacing: -0.01em;
+    a { color: var(--text); text-decoration:none; }
+
+    /* HERO */
+    .hero {
+      padding: 18px 0 10px;
+    }
+    .hero h1 {
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .hero p {
+      margin: 14px 0 0;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .hero-actions {
+      margin-top: 18px;
+      display:flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items:center;
     }
 
-    /* ===== FOOTER ===== */
-    footer {
-      background: #020617;
-      color: #cbd5e1;
-      text-align: center;
-      padding: 36px 24px;
-      font-size: 14px;
+    /* KPI cards */
+    .kpi-grid {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap:18px;
+      margin-top:20px;
+    }
+
+    .kpi {
+      background:#f9fafb;
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:20px;
+      cursor:pointer;
+      transition:.15s ease;
+    }
+
+    .kpi:hover {
+      transform: translateY(-2px);
+      background:#ffffff;
+      box-shadow:0 8px 20px rgba(0,0,0,.08);
+    }
+
+    .kpi .title {
+      font-size:13px;
+      font-weight:700;
+      color:var(--muted);
+    }
+
+    .kpi .value {
+      font-size:30px;
+      font-weight:800;
+      margin-top:6px;
+    }
+
+    /* boxes */
+    .box {
+      background:#ffffff;
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:22px;
+      margin-top:22px;
+    }
+
+    .pill {
+      display:inline-block;
+      padding:4px 12px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .pill.good { background:#dcfce7; color:#166534; }
+    .pill.avg { background:#ffedd5; color:#9a3412; }
+    .pill.bad { background:#fee2e2; color:#991b1b; }
+
+    /* buttons */
+    .btn {
+      padding:14px 22px;
+      border-radius:14px;
+      border:0;
+      cursor:pointer;
+      font-weight:800;
+      background:var(--primary);
+      color:#fff;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+    }
+
+    .btn.secondary {
+      background:#fff;
+      color:var(--text);
+      border:2px solid var(--border);
+    }
+
+    input {
+      padding:12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+    }
+
+    /* paywall */
+    .overlay {
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,.6);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:50;
+    }
+
+    .overlay .box {
+      max-width:420px;
+      text-align:center;
     }
   </style>
 </head>
 
 <body>
+<div class="card">
 
-<header>
-  <h1>Waar verliest jouw supportorganisatie structureel geld?</h1>
-  <p>
-    Prolixia analyseert supportdata en laat exact zien
-    <b>waar SLA’s ontsporen</b>, wat dit kost in
-    tijd, FTE en euro’s — en waar je moet ingrijpen.
-  </p>
-
-  <a class="cta" href="/app">Bekijk demo-analyse</a>
-  <a class="cta secondary" href="/app">Start met eigen data</a>
-</header>
-
-<section>
-  <h2>Wat Prolixia inzichtelijk maakt</h2>
-  <p class="sub">
-    Geen dashboards vol ruis. Eén helder overzicht
-    voor operationeel management en directie.
-  </p>
-
-  <div class="grid">
-    <div class="card">
-      <h3>⏱ Structurele wachttijden</h3>
-      <p>
-        Zie exact welke ticketstatussen structureel te lang duren
-        en waar SLA’s breken.
-      </p>
+  <div class="row" style="justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <b style="font-size:18px;">Prolixia</b>
+      <span class="muted" style="font-size:13px;">Support SLA Intelligence</span>
     </div>
 
-    <div class="card">
-      <h3>💶 Financiële impact</h3>
-      <p>
-        Elke vertraging wordt omgerekend naar
-        <b>uren, FTE en euro’s</b>.
-      </p>
-    </div>
+    {% if request.url.path != "/" %}
+      <a href="/" class="muted">← Landing</a>
+    {% endif %}
+  </div>
 
-    <div class="card">
-      <h3>📊 SLA & compliance</h3>
-      <p>
-        Direct inzicht in compliance,
-        trends en contractueel risico.
-      </p>
-    </div>
+  <!-- HERO (buttons always work) -->
+  <div class="hero">
+    <h1>Waar verliest jouw supportorganisatie structureel geld?</h1>
+    <p>
+      Prolixia analyseert supportdata en laat exact zien waar SLA’s ontsporen, wat dit kost in tijd, FTE en euro’s — en waar je moet ingrijpen.
+    </p>
 
-    <div class="card">
-      <h3>🧭 Concrete verbeteracties</h3>
-      <p>
-        Heldere aanbevelingen waarmee je
-        binnen 30–90 dagen zichtbaar verbetert.
-      </p>
+    {% set start_url = "/app" if request.url.path == "/" else "#subscribe" %}
+
+    <div class="hero-actions">
+      <a class="btn" href="/demo">▶ Bekijk demo-analyse</a>
+      <a class="btn secondary" href="{{ start_url }}">Start met eigen data</a>
+      <a class="btn secondary" href="/enterprise">Enterprise</a>
     </div>
   </div>
-</section>
 
-<section>
-  <h2>Wat dit organisaties oplevert</h2>
+  <!-- KPI / dashboard -->
+  {% if metrics and metrics.sla_by_type %}
+  <div class="kpi-grid">
+    <a class="kpi" href="#sla-intelligence" data-paywall="pro">
+      <div class="title">SLA-compliance</div>
+      <div class="value">
+        {{ "%.1f"|format(
+          metrics.sla_by_type.values()
+          | map(attribute='compliance_pct')
+          | sum / metrics.sla_by_type|length
+        ) }}%
+      </div>
+    </a>
 
-  <div class="grid">
-    <div class="card">
-      <div class="highlight">€10k–€30k</div>
-      <p>Gemiddelde maandelijkse SLA-kosten bij middelgrote supportteams</p>
-    </div>
+    <a class="kpi" href="#benchmark" data-paywall="pro">
+      <div class="title">Benchmark</div>
+      <div class="value">Vergelijk →</div>
+    </a>
 
-    <div class="card">
-      <div class="highlight">1–2 FTE</div>
-      <p>Verborgen capaciteitsverlies door wachttijden</p>
-    </div>
-
-    <div class="card">
-      <div class="highlight">20–30%</div>
-      <p>Realistische verbetering binnen 90 dagen</p>
+    <div class="kpi">
+      <div class="title">Maandelijks risico</div>
+      <div class="value">
+        €{{ "{:,.0f}".format(
+          metrics.sla_by_type.values()
+          | map(attribute='monthly_risk_eur_est')
+          | sum
+        ) }}
+      </div>
     </div>
   </div>
-</section>
+  {% endif %}
 
-<section style="text-align:center;">
-  <h2>Klaar voor inzicht?</h2>
-  <p class="sub">
-    Bekijk de demo of upload direct je eigen supportdata.
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" id="sla-intelligence">
+    <b>📊 SLA Intelligence per type</b>
+
+    {% for t, v in metrics.sla_by_type.items() %}
+      <div class="muted" style="margin-top:8px;">
+        <b>{{ t.replace("_"," ").title() }}</b> —
+        Compliance {{ v.compliance_pct }}% ·
+        Risico €{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}/maand
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" id="benchmark">
+    <b>📊 Benchmark – vergelijking met vergelijkbare supportteams</b>
+
+    {% for t, v in metrics.sla_by_type.items() %}
+      {% set comp = v.compliance_pct %}
+      {% if t == "first_response" %}{% set avg = 85 %}
+      {% elif t == "waiting" %}{% set avg = 80 %}
+      {% elif t == "resolution" %}{% set avg = 88 %}
+      {% else %}{% set avg = 85 %}{% endif %}
+
+      {% if comp >= avg + 5 %}
+        {% set label = "good" %}
+        {% set text = "Beter dan gemiddeld" %}
+      {% elif comp < avg - 5 %}
+        {% set label = "bad" %}
+        {% set text = "Slechter dan gemiddeld" %}
+      {% else %}
+        {% set label = "avg" %}
+        {% set text = "Rond het gemiddelde" %}
+      {% endif %}
+
+      <div style="margin-top:14px;">
+        <b>{{ t.replace("_"," ").title() }}</b><br>
+
+        {% if active and plan == "pro" %}
+          <span class="pill {{ label }}">{{ text }}</span>
+          <div class="muted">
+            Jouw score: <b>{{ comp }}%</b> • Marktgemiddelde: <b>{{ avg }}%</b>
+          </div>
+        {% else %}
+          <span class="pill {{ label }}">{{ text }}</span>
+          <div class="muted">
+            Exacte benchmark beschikbaar in <b>Pro</b>.
+            <a href="#subscribe">Upgrade →</a>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <hr>
+
+  <!-- SUBSCRIBE -->
+  <h3 id="subscribe">Abonnement</h3>
+  <p class="muted">
+    {% if active %}
+      Huidig plan: <b>{{ plan|upper }}</b>
+    {% else %}
+      Upgrade voor volledige SLA-trends en benchmarks.
+    {% endif %}
   </p>
 
-  <a class="cta" href="/app">Bekijk demo</a>
-  <a class="cta secondary" href="/app">Start abonnement</a>
-</section>
+  <div class="row">
+    <form method="post" action="/subscribe/basic">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn secondary" type="submit">Basic – €19</button>
+    </form>
 
-<footer>
-  © Prolixia — Support SLA Intelligence
-</footer>
+    <form method="post" action="/subscribe/pro">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn" type="submit">Pro – €49</button>
+    </form>
+  </div>
+</div>
+
+<!-- PAYWALL -->
+<div class="overlay" id="paywall">
+  <div class="box">
+    <h3>🔒 Pro-functie</h3>
+    <p class="muted">
+      Benchmarks en diepgaande SLA-analyses zijn beschikbaar in het Pro-abonnement.
+    </p>
+    <div class="row" style="justify-content:center;">
+      <a class="btn" href="#subscribe">Upgrade naar Pro</a>
+      <button class="btn secondary" onclick="closePaywall()">Sluiten</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const active = {{ "true" if active else "false" }};
+  const plan = "{{ plan if plan else '' }}";
+
+  document.querySelectorAll("[data-paywall]").forEach(el => {
+    el.addEventListener("click", e => {
+      if (!active || plan !== "pro") {
+        e.preventDefault();
+        document.getElementById("paywall").style.display = "flex";
+      }
+    });
+  });
+
+  function closePaywall() {
+    document.getElementById("paywall").style.display = "none";
+  }
+</script>
 
 </body>
 </html>
