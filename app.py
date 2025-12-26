@@ -67,7 +67,19 @@ def read_last_metrics():
 # ================= ROUTES =================
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request):
-    return templates.TemplateResponse("landing.html", {"request": request})
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "email": None,
+            "active": False,
+            "plan": "basic",
+            "demo_used": False,
+            "last_demo_pdf": None,
+            "roi_month_eur": None,
+            "metrics": None,
+        },
+    )
 
 @app.get("/enterprise", response_class=HTMLResponse)
 def enterprise(request: Request):
