@@ -21,163 +21,122 @@
     .pill.high { background:#fee2e2; color:#991b1b; }
     .pill.medium { background:#ffedd5; color:#9a3412; }
 
-    /* clickable KPI */
-    .kpi {
-      cursor:pointer;
-      padding:10px 14px;
-      border-radius:10px;
+    .kpi { cursor:pointer; padding:10px 14px; border-radius:10px; }
+    .kpi:hover { background:#eef2ff; }
+
+    /* paywall overlay */
+    .overlay {
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:50;
     }
-    .kpi:hover {
-      background:#eef2ff;
+    .overlay .box {
+      max-width:420px;
+      background:#fff;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="row" style="justify-content:space-between;">
-      <h1 style="margin:0;">Prolixia</h1>
-      <a href="/">← Landing</a>
-    </div>
+<div class="card">
 
-    <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
-
-    <!-- ================= KPI SUMMARY (KLIKBAAR) ================= -->
-    {% if metrics and metrics.sla_by_type %}
-    <div class="box" style="margin-top:16px;">
-      <b>📌 SLA-overzicht (samenvatting)</b>
-
-      {% set comps = [] %}
-      {% set risks = [] %}
-      {% for t, v in metrics.sla_by_type.items() %}
-        {% set _ = comps.append(v.compliance_pct) %}
-        {% set _ = risks.append(v.monthly_risk_eur_est) %}
-      {% endfor %}
-
-      {% set avg_comp = (comps|sum / comps|length) if comps|length > 0 else 0 %}
-      {% set total_risk = risks|sum %}
-
-      <div class="row" style="margin-top:10px;">
-        <a class="kpi" href="#sla-intelligence">
-          <b>SLA-compliance</b><br>
-          <span style="font-size:22px; font-weight:800;">
-            {{ "%.1f"|format(avg_comp) }}%
-          </span>
-        </a>
-
-        <a class="kpi" href="#actie-vereist">
-          <b>Maandelijks risico</b><br>
-          <span style="font-size:22px; font-weight:800;">
-            €{{ "{:,.0f}".format(total_risk) }}
-          </span>
-        </a>
-
-        <a class="kpi" href="#sla-trends">
-          <b>Trend</b><br>
-          {% set trend_sum = 0 %}
-          {% for t, tr in (metrics.sla_trend_by_type or {}).items() %}
-            {% set trend_sum = trend_sum + tr.compliance_delta_pp %}
-          {% endfor %}
-
-          {% if trend_sum < -1 %}
-            <span style="font-size:20px;">📉 verslechterend</span>
-          {% elif trend_sum > 1 %}
-            <span style="font-size:20px;">📈 verbeterend</span>
-          {% else %}
-            <span style="font-size:20px;">➖ stabiel</span>
-          {% endif %}
-        </a>
-      </div>
-    </div>
-    {% endif %}
-
-    <!-- ================= SLA INTELLIGENCE ================= -->
-    {% if metrics and metrics.sla_by_type %}
-    <div class="box" id="sla-intelligence" style="margin-top:16px;">
-      <b>📊 SLA Intelligence per processtap</b>
-
-      {% for t, v in metrics.sla_by_type.items() %}
-        <div class="muted" style="margin-top:8px;">
-          <b>{{ t.replace("_"," ").title() }}</b> —
-          Compliance {{ v.compliance_pct }}% ·
-          Risico €{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}/maand
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- ================= MINI TRENDS ================= -->
-    {% if metrics and metrics.sla_by_type %}
-    <div class="box" id="sla-trends" style="margin-top:16px;">
-      <b>📈 SLA-trends per type</b>
-
-      {% for t, v in metrics.sla_by_type.items() %}
-        {% set tr = (metrics.sla_trend_by_type or {}).get(t) %}
-        <div style="margin-top:10px;">
-          <b>{{ t.replace("_"," ").title() }}</b>
-          <div class="row" style="margin-top:6px;">
-            <div style="width:120px; height:10px; background:#e5e7eb; border-radius:6px; overflow:hidden;">
-              <div style="
-                width:{{ v.compliance_pct }}%;
-                height:100%;
-                background:
-                  {% if v.compliance_pct < 80 %}#dc2626
-                  {% elif v.compliance_pct < 90 %}#f59e0b
-                  {% else %}#16a34a{% endif %};
-              "></div>
-            </div>
-            <span class="muted">
-              {{ v.compliance_pct }}%
-              {% if tr %}
-                ({{ tr.compliance_delta_pp }} pp)
-              {% endif %}
-            </span>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- ================= ACTIE VEREIST ================= -->
-    {% if (not active) and metrics and metrics.upgrade_signals %}
-    <div class="box warn" id="actie-vereist" style="margin-top:16px;">
-      <b>⚠️ Actie vereist: structureel SLA-risico</b>
-
-      {% for s in metrics.upgrade_signals %}
-        <div class="muted" style="margin-top:6px;">
-          <span class="pill {{ s.severity }}">{{ s.severity|upper }}</span>
-          {{ s.message }}
-        </div>
-      {% endfor %}
-
-      <div class="row" style="margin-top:12px;">
-        <a class="btn blue" href="#subscribe">Bekijk volledige trends →</a>
-      </div>
-    </div>
-    {% endif %}
-
-    <hr>
-
-    <!-- ================= DEMO / SUBSCRIBE ================= -->
-    {% if not active %}
-      <h3>Probeer de demo</h3>
-      <form method="post" action="/demo">
-        <button class="btn" type="submit">▶️ Analyseer demo-data</button>
-      </form>
-
-      <hr>
-
-      <h3 id="subscribe">Start abonnement</h3>
-      <div class="row">
-        <form method="post" action="/subscribe/basic">
-          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-          <button class="btn secondary">Basic – €19</button>
-        </form>
-        <form method="post" action="/subscribe/pro">
-          <input type="email" name="email" required placeholder="jij@bedrijf.nl">
-          <button class="btn">Pro – €49</button>
-        </form>
-      </div>
-    {% endif %}
+  <div class="row" style="justify-content:space-between;">
+    <h1 style="margin:0;">Prolixia</h1>
+    <a href="/">← Landing</a>
   </div>
+
+  <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
+
+  <!-- ================= KPI SUMMARY ================= -->
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" style="margin-top:16px;">
+    <b>📌 SLA-overzicht (samenvatting)</b>
+
+    {% set comps = [] %}
+    {% set risks = [] %}
+    {% for t, v in metrics.sla_by_type.items() %}
+      {% set _ = comps.append(v.compliance_pct) %}
+      {% set _ = risks.append(v.monthly_risk_eur_est) %}
+    {% endfor %}
+
+    {% set avg_comp = (comps|sum / comps|length) if comps|length > 0 else 0 %}
+    {% set total_risk = risks|sum %}
+
+    <div class="row" style="margin-top:10px;">
+      <a class="kpi" href="#sla-intelligence" data-paywall="true">
+        <b>SLA-compliance</b><br>
+        <span style="font-size:22px; font-weight:800;">{{ "%.1f"|format(avg_comp) }}%</span>
+      </a>
+
+      <a class="kpi" href="#actie-vereist" data-paywall="true">
+        <b>Maandelijks risico</b><br>
+        <span style="font-size:22px; font-weight:800;">€{{ "{:,.0f}".format(total_risk) }}</span>
+      </a>
+
+      <a class="kpi" href="#sla-trends" data-paywall="true">
+        <b>Trend</b><br>
+        📊 Bekijk ontwikkeling
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ================= SLA DETAILS ================= -->
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" id="sla-intelligence" style="margin-top:16px;">
+    <b>📊 SLA Intelligence per processtap</b>
+    {% for t, v in metrics.sla_by_type.items() %}
+      <div class="muted">{{ t.replace("_"," ").title() }} — {{ v.compliance_pct }}%</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <hr>
+
+  <h3 id="subscribe">Start abonnement</h3>
+  <div class="row">
+    <form method="post" action="/subscribe/basic">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn secondary">Basic – €19</button>
+    </form>
+    <form method="post" action="/subscribe/pro">
+      <input type="email" name="email" required placeholder="jij@bedrijf.nl">
+      <button class="btn">Pro – €49</button>
+    </form>
+  </div>
+</div>
+
+<!-- ================= PAYWALL OVERLAY ================= -->
+<div class="overlay" id="paywall">
+  <div class="box warn">
+    <b>🔒 Premium inzicht</b>
+    <p class="muted" style="margin-top:8px;">
+      Gedetailleerde SLA-trends en klikbare analyses zijn beschikbaar in
+      <b>Pro</b>.
+    </p>
+    <div class="row" style="margin-top:12px;">
+      <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
+      <button class="btn secondary" onclick="closePaywall()">Sluiten</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const active = {{ "true" if active else "false" }};
+  document.querySelectorAll("[data-paywall]").forEach(el => {
+    el.addEventListener("click", e => {
+      if (!active) {
+        e.preventDefault();
+        document.getElementById("paywall").style.display = "flex";
+      }
+    });
+  });
+  function closePaywall() {
+    document.getElementById("paywall").style.display = "none";
+  }
+</script>
 </body>
 </html>
