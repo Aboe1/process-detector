@@ -24,7 +24,6 @@
     .kpi { cursor:pointer; padding:10px 14px; border-radius:10px; }
     .kpi:hover { background:#eef2ff; }
 
-    /* paywall overlay */
     .overlay {
       position:fixed;
       inset:0;
@@ -34,10 +33,7 @@
       justify-content:center;
       z-index:50;
     }
-    .overlay .box {
-      max-width:420px;
-      background:#fff;
-    }
+    .overlay .box { max-width:420px; background:#fff; }
   </style>
 </head>
 <body>
@@ -52,8 +48,8 @@
 
   <!-- ================= KPI SUMMARY ================= -->
   {% if metrics and metrics.sla_by_type %}
-  <div class="box" style="margin-top:16px;">
-    <b>📌 SLA-overzicht (samenvatting)</b>
+  <div class="box">
+    <b>📌 SLA-overzicht</b>
 
     {% set comps = [] %}
     {% set risks = [] %}
@@ -66,37 +62,35 @@
     {% set total_risk = risks|sum %}
 
     <div class="row" style="margin-top:10px;">
-      <a class="kpi" href="#sla-intelligence" data-paywall="true">
+      <a class="kpi" href="#sla-intelligence" data-paywall="pro">
         <b>SLA-compliance</b><br>
         <span style="font-size:22px; font-weight:800;">{{ "%.1f"|format(avg_comp) }}%</span>
       </a>
 
-      <a class="kpi" href="#actie-vereist" data-paywall="true">
+      <a class="kpi" href="#sla-trends" data-paywall="pro">
+        <b>Trend</b><br>
+        📈 Bekijk ontwikkeling
+      </a>
+
+      <div>
         <b>Maandelijks risico</b><br>
         <span style="font-size:22px; font-weight:800;">€{{ "{:,.0f}".format(total_risk) }}</span>
-      </a>
-
-      <a class="kpi" href="#sla-trends" data-paywall="true">
-        <b>Trend</b><br>
-        📊 Bekijk ontwikkeling
-      </a>
+      </div>
     </div>
-  </div>
-  {% endif %}
-
-  <!-- ================= SLA DETAILS ================= -->
-  {% if metrics and metrics.sla_by_type %}
-  <div class="box" id="sla-intelligence" style="margin-top:16px;">
-    <b>📊 SLA Intelligence per processtap</b>
-    {% for t, v in metrics.sla_by_type.items() %}
-      <div class="muted">{{ t.replace("_"," ").title() }} — {{ v.compliance_pct }}%</div>
-    {% endfor %}
   </div>
   {% endif %}
 
   <hr>
 
-  <h3 id="subscribe">Start abonnement</h3>
+  <h3 id="subscribe">Abonnement</h3>
+  <p class="muted">
+    {% if active %}
+      Huidig plan: <b>{{ plan|upper }}</b>
+    {% else %}
+      Kies een plan om volledige SLA-trends te bekijken.
+    {% endif %}
+  </p>
+
   <div class="row">
     <form method="post" action="/subscribe/basic">
       <input type="email" name="email" required placeholder="jij@bedrijf.nl">
@@ -107,12 +101,13 @@
       <button class="btn">Pro – €49</button>
     </form>
   </div>
+
 </div>
 
 <!-- ================= PAYWALL OVERLAY ================= -->
 <div class="overlay" id="paywall">
   <div class="box warn">
-    <b>🔒 Premium inzicht</b>
+    <b>🔒 Pro-functie</b>
     <p class="muted" style="margin-top:8px;">
       Gedetailleerde SLA-trends en klikbare analyses zijn beschikbaar in
       <b>Pro</b>.
@@ -126,14 +121,17 @@
 
 <script>
   const active = {{ "true" if active else "false" }};
+  const plan = "{{ plan if plan else '' }}";
+
   document.querySelectorAll("[data-paywall]").forEach(el => {
     el.addEventListener("click", e => {
-      if (!active) {
+      if (!active || plan !== "pro") {
         e.preventDefault();
         document.getElementById("paywall").style.display = "flex";
       }
     });
   });
+
   function closePaywall() {
     document.getElementById("paywall").style.display = "none";
   }
