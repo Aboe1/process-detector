@@ -7,21 +7,19 @@
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; }
     .card { max-width: 960px; padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px; background:#fff; }
-    .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
+    .row { display:flex; gap:16px; flex-wrap: wrap; align-items:center; }
     .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; text-decoration:none; display:inline-block; }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .btn.blue { background:#2563eb; }
-    .btn.red { background:#dc2626; }
     .muted { color:#64748b; }
     input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
     a { color:#0f172a; text-decoration:none; }
     hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
     .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
     .box.warn { background:#fff7ed; border-color:#fed7aa; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:800; }
+    .pill { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; }
     .pill.high { background:#fee2e2; color:#991b1b; }
-    .pill.med { background:#ffedd5; color:#9a3412; }
-    .pill.low { background:#e0f2fe; color:#075985; }
+    .pill.medium { background:#ffedd5; color:#9a3412; }
   </style>
 </head>
 <body>
@@ -33,100 +31,123 @@
 
     <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
 
-    {% if demo_used %}
-      <div class="box">
-        <b>✅ Demo gebruikt</b>
-        <div class="muted" style="margin-top:6px;">
-          {% if metrics and metrics.get("monthly_eur_est") %}
-            Geschatte maandimpact: <b>€{{ "{:,.0f}".format(metrics.monthly_eur_est) }}</b>
-            {% if metrics.get("yearly_eur_est") %} • Jaarimpact: <b>€{{ "{:,.0f}".format(metrics.yearly_eur_est) }}</b>{% endif %}
+    <!-- ================= KPI SUMMARY (NIEUW) ================= -->
+    {% if metrics and metrics.sla_by_type %}
+    <div class="box" style="margin-top:16px;">
+      <b>📌 SLA-overzicht (samenvatting)</b>
+
+      {% set comps = [] %}
+      {% set risks = [] %}
+      {% for t, v in metrics.sla_by_type.items() %}
+        {% set _ = comps.append(v.compliance_pct) %}
+        {% set _ = risks.append(v.monthly_risk_eur_est) %}
+      {% endfor %}
+
+      {% set avg_comp = (comps|sum / comps|length) if comps|length > 0 else 0 %}
+      {% set total_risk = risks|sum %}
+
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <b>SLA-compliance</b><br>
+          <span style="font-size:22px; font-weight:800;">
+            {{ "%.1f"|format(avg_comp) }}%
+          </span>
+        </div>
+
+        <div>
+          <b>Maandelijks risico</b><br>
+          <span style="font-size:22px; font-weight:800;">
+            €{{ "{:,.0f}".format(total_risk) }}
+          </span>
+        </div>
+
+        <div>
+          <b>Trend</b><br>
+          {% set trend_sum = 0 %}
+          {% for t, tr in (metrics.sla_trend_by_type or {}).items() %}
+            {% set trend_sum = trend_sum + tr.compliance_delta_pp %}
+          {% endfor %}
+
+          {% if trend_sum < -1 %}
+            <span style="font-size:20px;">📉 verslechterend</span>
+          {% elif trend_sum > 1 %}
+            <span style="font-size:20px;">📈 verbeterend</span>
           {% else %}
-            Bekijk je demo PDF voor de impact.
+            <span style="font-size:20px;">➖ stabiel</span>
           {% endif %}
         </div>
-
-        <div class="row" style="margin-top:12px;">
-          {% if last_demo_pdf %}
-            <a class="btn secondary" href="/download/{{ last_demo_pdf }}">Open demo PDF</a>
-          {% endif %}
-          <a class="btn blue" href="#subscribe">Start abonnement →</a>
-        </div>
       </div>
-      <hr>
+    </div>
     {% endif %}
 
-    <!-- ✅ NEW: Actie vereist (NL) -->
-    {% if (not active) and metrics and metrics.get("upgrade_signals") %}
-      <div class="box warn">
-        <div class="row" style="justify-content:space-between; align-items:flex-start;">
-          <div>
-            <b>⚠️ Actie vereist: structureel SLA-risico</b>
-            <div class="muted" style="margin-top:6px;">
-              Op basis van de geanalyseerde supportdata zijn één of meerdere structurele SLA-risico’s vastgesteld.
-            </div>
-          </div>
-          <a class="btn blue" href="#subscribe">Bekijk volledige trends →</a>
-        </div>
+    <!-- ================= MINI SLA TRENDS (NIEUW) ================= -->
+    {% if metrics and metrics.sla_by_type %}
+    <div class="box" style="margin-top:16px;">
+      <b>📊 SLA-trends per type</b>
 
-        <div style="margin-top:10px;">
-          {% for s in metrics.upgrade_signals %}
-            <div class="muted" style="margin:8px 0;">
-              {% if s.severity == "high" %}
-                <span class="pill high">HOOG</span>
-              {% elif s.severity == "medium" %}
-                <span class="pill med">MIDDEL</span>
-              {% else %}
-                <span class="pill low">LAAG</span>
+      {% for t, v in metrics.sla_by_type.items() %}
+        {% set tr = (metrics.sla_trend_by_type or {}).get(t) %}
+        <div style="margin-top:12px;">
+          <b>{{ t.replace("_"," ").title() }}</b>
+
+          <div class="row" style="align-items:center; margin-top:6px;">
+            <div style="width:120px; height:10px; background:#e5e7eb; border-radius:6px; overflow:hidden;">
+              <div style="
+                width:{{ v.compliance_pct }}%;
+                height:100%;
+                background:
+                  {% if v.compliance_pct < 80 %}#dc2626
+                  {% elif v.compliance_pct < 90 %}#f59e0b
+                  {% else %}#16a34a{% endif %};
+              "></div>
+            </div>
+
+            <span class="muted">
+              {{ v.compliance_pct }}%
+              {% if tr %}
+                {% if tr.compliance_delta_pp < 0 %}
+                  (↓ {{ tr.compliance_delta_pp }} pp)
+                {% elif tr.compliance_delta_pp > 0 %}
+                  (↑ +{{ tr.compliance_delta_pp }} pp)
+                {% else %}
+                  (→ 0 pp)
+                {% endif %}
               {% endif %}
-              &nbsp; {{ s.message }}
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-      <hr>
-    {% endif %}
-
-    <!-- ✅ NEW: SLA Intelligence per type -->
-    {% if metrics and metrics.get("sla_by_type") %}
-      <div class="box">
-        <b>📊 SLA Intelligence per processtap</b>
-        <div class="muted" style="margin-top:6px;">
-          Dit overzicht toont per SLA-type de mate van naleving en de bijbehorende financiële impact.
-        </div>
-
-        <div class="muted" style="margin-top:10px;">
-          {% for t, v in metrics.sla_by_type.items() %}
-            <div style="margin:6px 0;">
-              <b>{{ t.replace("_"," ").title() }}</b> —
-              Compliance: <b>{{ v.compliance_pct }}%</b> ·
-              Risico: <b>€{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}</b>/maand
-              {% if metrics.get("sla_trend_by_type") and metrics.sla_trend_by_type.get(t) %}
-                {% set tr = metrics.sla_trend_by_type.get(t) %}
-                · Trend: <b>{{ tr.compliance_delta_pp }} pp</b>
-              {% endif %}
-            </div>
-          {% endfor %}
-        </div>
-
-        {% if metrics.get("ai_advice") and metrics.ai_advice %}
-          <div class="muted" style="margin-top:10px;">
-            <b>AI-gestuurde verbeteraanbeveling</b><br>
-            {{ metrics.ai_advice[0].summary }}<br>
-            <b>Geschatte besparing:</b>
-            €{{ "{:,.0f}".format(metrics.ai_advice[0].monthly_risk_reduction_est) }} per maand
+            </span>
           </div>
-        {% endif %}
-
-        <div class="row" style="margin-top:12px;">
-          <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
         </div>
-      </div>
-      <hr>
+      {% endfor %}
+    </div>
     {% endif %}
 
+    <!-- ================= ACTIE VEREIST ================= -->
+    {% if (not active) and metrics and metrics.upgrade_signals %}
+    <div class="box warn" style="margin-top:16px;">
+      <b>⚠️ Actie vereist: structureel SLA-risico</b>
+      <div class="muted" style="margin-top:6px;">
+        Op basis van de geanalyseerde supportdata zijn structurele SLA-risico’s vastgesteld.
+      </div>
+
+      <div style="margin-top:10px;">
+        {% for s in metrics.upgrade_signals %}
+          <div class="muted" style="margin:6px 0;">
+            <span class="pill {{ s.severity }}"> {{ s.severity|upper }} </span>
+            &nbsp; {{ s.message }}
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="row" style="margin-top:12px;">
+        <a class="btn blue" href="#subscribe">Bekijk volledige trends →</a>
+      </div>
+    </div>
+    {% endif %}
+
+    <hr>
+
+    <!-- ================= DEMO ================= -->
     {% if not active %}
       <h3>Probeer de demo</h3>
-
       {% if not demo_used %}
         <form method="post" action="/demo">
           <button class="btn" type="submit">▶️ Analyseer demo-data</button>
@@ -151,20 +172,6 @@
           <button class="btn" type="submit">Pro – €49 / maand</button>
         </form>
       </div>
-
-      <div class="box" style="margin-top:18px;">
-        <b>Lievere een korte demo call?</b>
-        <p class="muted" style="margin:6px 0 0;">
-          Mail ons en stuur (optioneel) een voorbeeld-CSV. We laten in 10 minuten zien waar je SLA-tijd verdwijnt.
-        </p>
-        <div class="row" style="margin-top:12px;">
-          <a class="btn secondary"
-             href="mailto:info@prolixia.com?subject=Prolixia%20demo%20aanvraag&body=Hoi%2C%0A%0AIk%20wil%20graag%20een%20korte%20demo%20van%20Prolixia.%0A%0ABedrijf%3A%20%0ATickets%20per%20maand%3A%20%0ASupporttool%20(Zendesk%2FJira%2Fetc.)%3A%20%0A%0AGroet%2C%0A">
-            Plan demo via e-mail
-          </a>
-        </div>
-      </div>
-
     {% else %}
       <p>Welkom terug <b>{{ email }}</b> <span class="muted">({{ plan|upper }})</span></p>
 
@@ -184,16 +191,13 @@
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-
       const res = await fetch("/upload", { method: "POST", body: fd });
-
       let data = {};
-      try { data = await res.json(); } catch (err) {}
-
+      try { data = await res.json(); } catch {}
       if (res.ok && data.filename) {
         window.location = "/download/" + encodeURIComponent(data.filename);
       } else {
-        document.getElementById("msg").textContent = "Upload mislukt. Controleer je CSV en probeer opnieuw.";
+        document.getElementById("msg").textContent = "Upload mislukt. Controleer je CSV.";
       }
     });
   </script>
