@@ -4,25 +4,61 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Prolixia – App</title>
+
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 40px; color:#0f172a; scroll-behavior:smooth; }
-    .card { max-width: 960px; padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px; background:#fff; }
-    .row { display:flex; gap:16px; flex-wrap: wrap; align-items:center; }
-    .btn { padding: 12px 18px; border-radius: 10px; border:0; cursor:pointer; background:#0f172a; color:#fff; font-weight:800; text-decoration:none; display:inline-block; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 40px;
+      color:#0f172a;
+      scroll-behavior:smooth;
+    }
+    .card {
+      max-width: 960px;
+      padding: 28px;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      background:#fff;
+    }
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+    .btn {
+      padding:12px 18px;
+      border-radius:10px;
+      border:0;
+      cursor:pointer;
+      background:#0f172a;
+      color:#fff;
+      font-weight:800;
+      text-decoration:none;
+    }
     .btn.secondary { background:#fff; color:#0f172a; border:2px solid #0f172a; }
     .btn.blue { background:#2563eb; }
     .muted { color:#64748b; }
+    hr { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
     input { padding:10px; border-radius:10px; border:1px solid #e5e7eb; }
     a { color:#0f172a; text-decoration:none; }
-    hr { border:none; border-top:1px solid #e5e7eb; margin: 24px 0; }
-    .box { background:#f8fafc; border:1px solid #e2e8f0; padding:16px; border-radius:12px; }
+
+    .box {
+      background:#f8fafc;
+      border:1px solid #e2e8f0;
+      padding:16px;
+      border-radius:12px;
+      margin-top:16px;
+    }
     .box.warn { background:#fff7ed; border-color:#fed7aa; }
-    .pill { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; }
-    .pill.high { background:#fee2e2; color:#991b1b; }
-    .pill.medium { background:#ffedd5; color:#9a3412; }
 
     .kpi { cursor:pointer; padding:10px 14px; border-radius:10px; }
     .kpi:hover { background:#eef2ff; }
+
+    .pill {
+      display:inline-block;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:800;
+    }
+    .pill.good { background:#dcfce7; color:#166534; }
+    .pill.avg { background:#ffedd5; color:#9a3412; }
+    .pill.bad { background:#fee2e2; color:#991b1b; }
 
     .overlay {
       position:fixed;
@@ -36,6 +72,7 @@
     .overlay .box { max-width:420px; background:#fff; }
   </style>
 </head>
+
 <body>
 <div class="card">
 
@@ -44,12 +81,12 @@
     <a href="/">← Landing</a>
   </div>
 
-  <p class="muted">Support/SLA analyse: ontdek waar tickets blijven hangen.</p>
+  <p class="muted">Support / SLA analyse – zie in één oogopslag waar tijd en geld verloren gaat.</p>
 
   <!-- ================= KPI SUMMARY ================= -->
   {% if metrics and metrics.sla_by_type %}
   <div class="box">
-    <b>📌 SLA-overzicht</b>
+    <b>📌 SLA-overzicht (samenvatting)</b>
 
     {% set comps = [] %}
     {% set risks = [] %}
@@ -58,36 +95,105 @@
       {% set _ = risks.append(v.monthly_risk_eur_est) %}
     {% endfor %}
 
-    {% set avg_comp = (comps|sum / comps|length) if comps|length > 0 else 0 %}
+    {% set avg_comp = (comps|sum / comps|length) if comps|length else 0 %}
     {% set total_risk = risks|sum %}
 
     <div class="row" style="margin-top:10px;">
       <a class="kpi" href="#sla-intelligence" data-paywall="pro">
         <b>SLA-compliance</b><br>
-        <span style="font-size:22px; font-weight:800;">{{ "%.1f"|format(avg_comp) }}%</span>
+        <span style="font-size:22px;font-weight:800;">{{ "%.1f"|format(avg_comp) }}%</span>
       </a>
 
-      <a class="kpi" href="#sla-trends" data-paywall="pro">
-        <b>Trend</b><br>
-        📈 Bekijk ontwikkeling
+      <a class="kpi" href="#benchmark" data-paywall="pro">
+        <b>Benchmark</b><br>
+        Vergelijking →
       </a>
 
       <div>
         <b>Maandelijks risico</b><br>
-        <span style="font-size:22px; font-weight:800;">€{{ "{:,.0f}".format(total_risk) }}</span>
+        <span style="font-size:22px;font-weight:800;">
+          €{{ "{:,.0f}".format(total_risk) }}
+        </span>
       </div>
     </div>
   </div>
   {% endif %}
 
+  <!-- ================= SLA INTELLIGENCE ================= -->
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" id="sla-intelligence">
+    <b>📊 SLA Intelligence per type</b>
+
+    {% for t, v in metrics.sla_by_type.items() %}
+      <div class="muted" style="margin-top:6px;">
+        <b>{{ t.replace("_"," ").title() }}</b> —
+        Compliance {{ v.compliance_pct }}% ·
+        Risico €{{ "{:,.0f}".format(v.monthly_risk_eur_est) }}/maand
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ================= BENCHMARK ================= -->
+  {% if metrics and metrics.sla_by_type %}
+  <div class="box" id="benchmark">
+    <b>📊 Benchmark – vergelijking met vergelijkbare supportteams</b>
+    <div class="muted" style="margin-top:6px;">
+      Gebaseerd op marktgemiddelden voor teams van vergelijkbare grootte.
+    </div>
+
+    {% for t, v in metrics.sla_by_type.items() %}
+      {% set comp = v.compliance_pct %}
+      {% if t == "first_response" %}
+        {% set avg = 85 %}
+      {% elif t == "waiting" %}
+        {% set avg = 80 %}
+      {% elif t == "resolution" %}
+        {% set avg = 88 %}
+      {% else %}
+        {% set avg = 85 %}
+      {% endif %}
+
+      {% if comp >= avg + 5 %}
+        {% set label = "good" %}
+        {% set text = "Beter dan gemiddeld" %}
+      {% elif comp < avg - 5 %}
+        {% set label = "bad" %}
+        {% set text = "Slechter dan gemiddeld" %}
+      {% else %}
+        {% set label = "avg" %}
+        {% set text = "Rond het gemiddelde" %}
+      {% endif %}
+
+      <div style="margin-top:12px;">
+        <b>{{ t.replace("_"," ").title() }}</b><br>
+
+        {% if active and plan == "pro" %}
+          <span class="pill {{ label }}">{{ text }}</span>
+          <div class="muted">
+            Jouw score: <b>{{ comp }}%</b> • Marktgemiddelde: <b>{{ avg }}%</b>
+          </div>
+        {% else %}
+          <span class="pill {{ label }}">{{ text }}</span>
+          <div class="muted">
+            Exacte benchmark beschikbaar in <b>Pro</b>.
+            <a href="#subscribe">Upgrade →</a>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <hr>
 
+  <!-- ================= SUBSCRIBE ================= -->
   <h3 id="subscribe">Abonnement</h3>
   <p class="muted">
     {% if active %}
       Huidig plan: <b>{{ plan|upper }}</b>
     {% else %}
-      Kies een plan om volledige SLA-trends te bekijken.
+      Upgrade voor volledige SLA-trends en benchmarks.
     {% endif %}
   </p>
 
@@ -96,21 +202,20 @@
       <input type="email" name="email" required placeholder="jij@bedrijf.nl">
       <button class="btn secondary">Basic – €19</button>
     </form>
+
     <form method="post" action="/subscribe/pro">
       <input type="email" name="email" required placeholder="jij@bedrijf.nl">
       <button class="btn">Pro – €49</button>
     </form>
   </div>
-
 </div>
 
-<!-- ================= PAYWALL OVERLAY ================= -->
+<!-- ================= PAYWALL ================= -->
 <div class="overlay" id="paywall">
   <div class="box warn">
     <b>🔒 Pro-functie</b>
     <p class="muted" style="margin-top:8px;">
-      Gedetailleerde SLA-trends en klikbare analyses zijn beschikbaar in
-      <b>Pro</b>.
+      Benchmarks en klikbare SLA-analyses zijn beschikbaar in het <b>Pro</b>-abonnement.
     </p>
     <div class="row" style="margin-top:12px;">
       <a class="btn blue" href="#subscribe">Upgrade naar Pro →</a>
@@ -136,5 +241,6 @@
     document.getElementById("paywall").style.display = "none";
   }
 </script>
+
 </body>
 </html>
